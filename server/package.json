@@ -4,8 +4,9 @@
   "private": true,
   "description": "Chat App backend — Express 5, MongoDB, Socket.io, JWT, Cloudinary",
   "author": {
-    "name": "Serkanby",
-    "url": "https://serkanbayraktar.com/"
+    "name": "jennyasync",
+    "email": "shwetasing09kj@gmail.com",
+    "url": "https://github.com/jennyasync"
   },
   "license": "MIT",
   "type": "module",

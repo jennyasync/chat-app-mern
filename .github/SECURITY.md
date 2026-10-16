@@ -21,7 +21,7 @@ We take the security of our project seriously. If you discover a security vulner
 
 ### Do
 
-1. **Email us directly** at **serkanbyx1@gmail.com** with details about the vulnerability
+1. **Email us directly** at **shwetasing09kj@gmail.com** with details about the vulnerability
 2. **Include the following information**:
    - Type of vulnerability (e.g., XSS, SQL Injection, Authentication Bypass)
    - Step-by-step instructions to reproduce the issue
@@ -54,6 +54,6 @@ When contributing to this project, please ensure:
 
 ## Contact
 
-For security concerns, please contact: **serkanbyx1@gmail.com**
+For security concerns, please contact: **shwetasing09kj@gmail.com**
 
 Thank you for helping keep this project and its users safe!

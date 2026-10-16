@@ -385,9 +385,7 @@ const renderWelcomePage = (version) => `<!DOCTYPE html>
 
     <footer class="sign">
       Created by
-      <a href="https://serkanbayraktar.com/" target="_blank" rel="noopener noreferrer">Serkanby</a>
-      |
-      <a href="https://github.com/Serkanbyx" target="_blank" rel="noopener noreferrer">Github</a>
+      <a href="https://github.com/jennyasync" target="_blank" rel="noopener noreferrer">jennyasync</a>
     </footer>
   </main>
 </body>

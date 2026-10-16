@@ -214,7 +214,7 @@ flowchart LR
 **1. Clone the repository:**
 
 ```bash
-git clone https://github.com/Serkanbyx/chat-app-mern.git
+git clone https://github.com/jennyasync/chat-app-mern.git
 cd chat-app-mern
 ```
 
@@ -702,11 +702,10 @@ Released under the [MIT License](./LICENSE).
 
 ## Developer
 
-**Serkan Bayraktar**
+**jennyasync**
 
-- 🌐 Website: [serkanbayraktar.com](https://serkanbayraktar.com/)
-- 💻 GitHub: [@Serkanbyx](https://github.com/Serkanbyx)
-- 📧 Email: [serkanbyx1@gmail.com](mailto:serkanbyx1@gmail.com)
+- 💻 GitHub: [@jennyasync](https://github.com/jennyasync)
+- 📧 Email: [shwetasing09kj@gmail.com](mailto:shwetasing09kj@gmail.com)
 
 ---
 
@@ -727,9 +726,8 @@ Released under the [MIT License](./LICENSE).
 
 ## Contact
 
-- 🐛 **Issues**: [Open an issue](https://github.com/Serkanbyx/chat-app-mern/issues)
-- 📧 **Email**: [serkanbyx1@gmail.com](mailto:serkanbyx1@gmail.com)
-- 🌐 **Website**: [serkanbayraktar.com](https://serkanbayraktar.com/)
+- 🐛 **Issues**: [Open an issue](https://github.com/jennyasync/chat-app-mern/issues)
+- 📧 **Email**: [shwetasing09kj@gmail.com](mailto:shwetasing09kj@gmail.com)
 
 ---
 

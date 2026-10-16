@@ -45,27 +45,16 @@ const Footer = ({ className = '' }) => {
         <span>
           Created by{' '}
           <a
-            href="https://serkanbayraktar.com/"
+            href="https://github.com/jennyasync"
             target="_blank"
             rel="noopener noreferrer"
-            className="font-medium text-brand-600 underline-offset-2 transition-colors hover:text-brand-700 hover:underline dark:text-brand-400 dark:hover:text-brand-300"
+            aria-label="GitHub profile of jennyasync"
+            className="inline-flex items-center gap-1 font-medium text-brand-600 underline-offset-2 transition-colors hover:text-brand-700 hover:underline dark:text-brand-400 dark:hover:text-brand-300"
           >
-            Serkanby
+            <GithubIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>jennyasync</span>
           </a>
         </span>
-        <span aria-hidden="true" className="text-gray-300 dark:text-gray-700">
-          |
-        </span>
-        <a
-          href="https://github.com/Serkanbyx"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="GitHub profile of Serkanby"
-          className="inline-flex items-center gap-1 font-medium text-brand-600 underline-offset-2 transition-colors hover:text-brand-700 hover:underline dark:text-brand-400 dark:hover:text-brand-300"
-        >
-          <GithubIcon className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>GitHub</span>
-        </a>
       </p>
     </footer>
   );

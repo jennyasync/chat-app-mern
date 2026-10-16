@@ -21,8 +21,9 @@ const swaggerDefinition = {
       description ??
       'Production-grade real-time chat platform — REST surface for auth, conversations, messages, uploads, notifications, reports and admin moderation.',
     contact: {
-      name: 'Serkanby',
-      url: 'https://serkanbayraktar.com/',
+      name: 'jennyasync',
+      email: 'shwetasing09kj@gmail.com',
+      url: 'https://github.com/jennyasync',
     },
     license: {
       name: 'MIT',
@@ -96,7 +97,7 @@ const swaggerDefinition = {
         type: 'object',
         properties: {
           _id: { type: 'string', example: '6630b5f1c2e9a3b1d4f8e201' },
-          username: { type: 'string', example: 'serkan' },
+          username: { type: 'string', example: 'jenny' },
           email: { type: 'string', format: 'email', example: 'user@example.com' },
           avatar: { type: 'string', nullable: true, example: 'https://res.cloudinary.com/.../avatar.webp' },
           role: { type: 'string', enum: ['user', 'admin'], example: 'user' },

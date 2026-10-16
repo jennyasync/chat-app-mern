@@ -1,3 +1,4 @@
+
 import { Router } from 'express';
 import {
   register,
@@ -35,7 +36,7 @@ const router = Router();
  *             type: object
  *             required: [username, email, password]
  *             properties:
- *               username: { type: string, example: serkan }
+ *               username: { type: string, example: jenny }
  *               email: { type: string, format: email, example: user@example.com }
  *               password: { type: string, format: password, minLength: 8, example: StrongPassw0rd! }
  *     responses:
