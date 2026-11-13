@@ -11,32 +11,7 @@ import { useLocalStorage } from '../hooks/useLocalStorage.js';
 import { updatePreferences as updatePreferencesService } from '../api/user.service.js';
 import { DEFAULT_PREFERENCES, STORAGE_KEYS } from '../utils/constants.js';
 
-/**
- * PreferencesContext — applies user UI preferences to <html> and
- * exposes an `updatePreference` action that persists changes server-side.
- *
- * Source-of-truth strategy:
- *   - Authenticated users: `user.preferences` from AuthContext is the
- *     canonical store. Local edits flow through `updatePreference`,
- *     which optimistically merges into `user.preferences` via
- *     `updateUser` AND fires the API call. On failure the optimistic
- *     change is rolled back to keep UI and DB consistent.
- *   - Guests (no `user`): fall back to a `localStorage`-backed copy so
- *     the landing/login pages can still respect the user's chosen
- *     theme without an account.
- *
- * The applier effects below read from a single derived `preferences`
- * object so toggling between guest/auth modes never strands a class on
- * `<html>` (e.g. leaving `dark` after logout when the user's system
- * pref is light).
- */
-
 const PreferencesContext = createContext(null);
-
-/* ------------------------------------------------------------------
- * DOM appliers — pure functions split out so they're trivial to unit
- * test (give them a class list, expect a different class list).
- * ------------------------------------------------------------------ */
 
 const applyTheme = (theme) => {
   if (typeof document === 'undefined') return;
@@ -46,8 +21,6 @@ const applyTheme = (theme) => {
   } else if (theme === 'light') {
     root.classList.remove('dark');
   } else {
-    // 'system' — defer to the OS-level preference. The matchMedia
-    // listener below keeps us in sync if it changes at runtime.
     const prefersDark =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-color-scheme: dark)').matches;
@@ -75,12 +48,7 @@ const applyAnimations = (animations) => {
   root.classList.toggle('no-anim', animations === false);
 };
 
-/**
- * Set a deep-ish path on a preferences object. We only need depth-2
- * (`notifications.browser`, `notifications.sound`, …), so this does
- * NOT pretend to be Lodash — keeping it small avoids the surface area
- * for prototype-pollution-style bugs.
- */
+// Preference paths are at most two levels deep, e.g. 'notifications.sound'.
 const setByPath = (obj, path, value) => {
   const keys = path.split('.');
   if (keys.length === 1) {
@@ -109,9 +77,7 @@ export const PreferencesProvider = ({ children }) => {
     DEFAULT_PREFERENCES,
   );
 
-  /* Derived current preferences. We spread DEFAULT_PREFERENCES first
-   * so a partially-stored user (older account, missing newer fields)
-   * still gets sensible defaults for the missing keys. */
+  // Defaults first so older accounts missing newer fields still get values.
   const preferences = useMemo(() => {
     const source = user?.preferences ?? guestPreferences ?? DEFAULT_PREFERENCES;
     return {
@@ -124,19 +90,15 @@ export const PreferencesProvider = ({ children }) => {
     };
   }, [user, guestPreferences]);
 
-  /* ---------- Apply effects ---------- */
   useEffect(() => {
     applyTheme(preferences.theme);
 
-    // 'system' is the only case that needs a live listener — for
-    // 'light'/'dark' the user's choice already wins.
     if (preferences.theme !== 'system') return undefined;
     if (typeof window === 'undefined' || !window.matchMedia) return undefined;
 
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = () => applyTheme('system');
-    // Both shapes for cross-browser support; Safari < 14 used the
-    // deprecated addListener API.
+    // Safari < 14 only supports the older addListener API.
     if (media.addEventListener) {
       media.addEventListener('change', handler);
       return () => media.removeEventListener('change', handler);
@@ -157,42 +119,30 @@ export const PreferencesProvider = ({ children }) => {
     applyAnimations(preferences.animations);
   }, [preferences.animations]);
 
-  /* ---------- Mutator ----------
-   *
-   * `updatePreference('notifications.sound', false)` — the path API
-   * keeps callers from having to reconstruct the entire preferences
-   * object every time they flip a switch.
-   */
   const updatePreference = useCallback(
     async (path, value) => {
       const previousValue = getByPath(preferences, path);
       const optimistic = setByPath(preferences, path, value);
 
-      // 1. Optimistic update.
       if (user) {
         updateUser({ preferences: optimistic });
       } else {
         setGuestPreferences(optimistic);
       }
 
-      // 2. Persist if authenticated. Guests have no server row to update.
+      // Guests only keep preferences in localStorage.
       if (!user) return optimistic;
 
       try {
-        // Send only the changed slice — the server's allow-list
-        // validator rejects unknown keys, so this also keeps the
-        // payload from accidentally introducing new fields.
+        // Send only the changed key; the server rejects unknown keys.
         const patch = setByPath({}, path, value);
         const result = await updatePreferencesService(patch);
 
-        // Trust the server response (it may merge / coerce values).
+        // The server may coerce values, so its copy wins.
         const persisted = result?.data?.preferences ?? optimistic;
         updateUser({ preferences: persisted });
         return persisted;
       } catch (error) {
-        // Roll back on failure so the UI doesn't show a setting that
-        // didn't actually save. Toast logging happens in the calling
-        // component (Settings page) — context stays UI-agnostic.
         const rolledBack = setByPath(preferences, path, previousValue);
         updateUser({ preferences: rolledBack });
         throw error;

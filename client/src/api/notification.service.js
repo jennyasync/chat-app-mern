@@ -1,13 +1,5 @@
 import api from './axios.js';
 
-/**
- * Notification service — `/api/notifications/*`.
- *
- * The unread badge in the header is driven by `getUnreadCount`, which
- * is cheap and indexed on the server (single count query). Components
- * that need full notification data should call `listNotifications`.
- */
-
 export const listNotifications = async ({ page = 1, limit = 20 } = {}) => {
   const { data } = await api.get('/notifications', { params: { page, limit } });
   return data;

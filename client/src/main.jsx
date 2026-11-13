@@ -11,23 +11,7 @@ import { NotificationProvider } from './contexts/NotificationContext.jsx';
 
 import './index.css';
 
-/**
- * Provider order matters and is enforced here:
- *
- *   BrowserRouter           — `useNavigate`, `useLocation` etc.
- *     └─ AuthProvider       — owns `token` + `user`; calls navigate()
- *         └─ SocketProvider — depends on token; tears down on logout
- *             └─ PreferencesProvider — depends on user (for prefs)
- *                 └─ NotificationProvider — depends on auth+socket+prefs
- *
- * Anything that needs the router MUST sit inside `<BrowserRouter>`,
- * which is why the auth provider (which calls `navigate('/chat')`
- * after a successful login) cannot live above it.
- *
- * Toaster sits at the leaf so toast portals are torn down after the
- * provider tree on hot-reload — preventing duplicate toasters in dev.
- */
-
+// Provider order matters: each one uses the ones above it (AuthProvider needs the router for navigate()).
 const root = createRoot(document.getElementById('root'));
 
 root.render(

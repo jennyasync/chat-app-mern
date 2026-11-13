@@ -12,28 +12,6 @@ import { useNavigate } from 'react-router-dom';
 import * as authService from '../api/auth.service.js';
 import { ROUTES, STORAGE_KEYS } from '../utils/constants.js';
 
-/**
- * AuthContext — single source of truth for "who is the current user?"
- *
- * Responsibilities:
- *   - Hydrate the session on first mount: if a JWT exists in
- *     localStorage we call `/auth/me` to validate it and fetch the
- *     full user document. A 401 here means the token has been revoked
- *     (account suspended, password changed elsewhere, etc.) so we
- *     transparently clear it and treat the user as a guest.
- *   - Expose imperative actions (`login`, `register`, `logout`,
- *     `updateUser`, `refresh`) that everything in the app — settings
- *     pages, sockets, notifications — funnel through.
- *   - Drive post-auth navigation. We deliberately call `navigate()`
- *     here (not in pages) so every entry point (login form, register
- *     form, deep-link with stale token) ends up in the same place.
- *
- * Why a ref guards the bootstrap fetch:
- *   In React 18+ Strict Mode every effect runs twice in development.
- *   Without `bootstrappedRef`, the dev server would issue two parallel
- *   `/auth/me` calls and produce a brief race-condition flash.
- */
-
 const AuthContext = createContext(null);
 
 const readToken = () => {
@@ -55,23 +33,12 @@ export const AuthProvider = ({ children }) => {
 
   const [token, setToken] = useState(readToken);
   const [user, setUser] = useState(null);
-  // Stays `true` until the bootstrap `/auth/me` call settles. Route
-  // guards check this so we don't redirect a logged-in user to /login
-  // during the half-second it takes the server to reply.
+  // Route guards wait on this so a logged-in user isn't bounced to /login before /auth/me replies.
   const [loading, setLoading] = useState(Boolean(readToken()));
 
+  // Strict Mode runs effects twice in dev; this stops a second /auth/me call.
   const bootstrappedRef = useRef(false);
 
-  /**
-   * Apply a successful login/register response: persist the token,
-   * populate user state, and route into the app. Pulled out as a helper
-   * so `login` and `register` cannot drift apart.
-   *
-   * `redirectTo` lets the caller deep-link the user back to the page
-   * they were trying to reach when `ProtectedRoute` bounced them to
-   * `/login`. Falls back to `ROUTES.CHAT` so the standard sign-in flow
-   * is unchanged.
-   */
   const applyAuthResult = useCallback(
     (result, { redirect = true, redirectTo } = {}) => {
       const nextToken = result?.data?.token ?? result?.token ?? null;
@@ -88,8 +55,6 @@ export const AuthProvider = ({ children }) => {
     },
     [navigate],
   );
-
-  /* ---------- Imperative actions ---------- */
 
   const login = useCallback(
     async (email, password, options = {}) => {
@@ -109,12 +74,7 @@ export const AuthProvider = ({ children }) => {
     [applyAuthResult],
   );
 
-  /**
-   * Local logout — does NOT call a backend endpoint because JWTs are
-   * stateless on the server. SocketContext watches `token` and tears
-   * down its connection when it becomes `null`, so we never need to
-   * reach into another context from here.
-   */
+  // JWTs are stateless, so logout is client-side only. SocketContext disconnects when `token` goes null.
   const logout = useCallback(
     ({ redirect = true } = {}) => {
       writeToken(null);
@@ -127,13 +87,6 @@ export const AuthProvider = ({ children }) => {
     [navigate],
   );
 
-  /**
-   * Merge a partial user object into state — the standard shape used
-   * by Settings pages, avatar uploads, and PreferencesContext after a
-   * successful PATCH. Accepts a function for the rare case where a
-   * caller needs the previous value to compute the next one (e.g.
-   * appending to `blockedUsers`).
-   */
   const updateUser = useCallback((partial) => {
     setUser((prev) => {
       if (!prev) return prev;
@@ -142,11 +95,6 @@ export const AuthProvider = ({ children }) => {
     });
   }, []);
 
-  /**
-   * Refetch the current user from the server. Used by Settings pages
-   * after potentially server-driven changes (e.g. password change
-   * doesn't touch user fields, but we still want to ensure no drift).
-   */
   const refresh = useCallback(async () => {
     if (!readToken()) return null;
     try {
@@ -155,14 +103,7 @@ export const AuthProvider = ({ children }) => {
       if (nextUser) setUser(nextUser);
       return nextUser;
     } catch (error) {
-      // The axios 401 interceptor already redirects on auth failure;
-      // we still null-out local state defensively in case the response
-      // status was something else (network error, 5xx).
-      //
-      // 403 here means the account was suspended mid-session (`protect`
-      // rejects inactive users with forbidden). The global interceptor
-      // only acts on 401, so we must clear the session ourselves or the
-      // UI would hang on a dead token until a manual reload.
+      // 403 means the account was suspended; the axios interceptor only handles 401, so clear it here.
       const status = error?.response?.status;
       if (status === 401 || status === 403) {
         logout({ redirect: false });
@@ -171,7 +112,6 @@ export const AuthProvider = ({ children }) => {
     }
   }, [logout]);
 
-  /* ---------- Bootstrap on mount ---------- */
   useEffect(() => {
     if (bootstrappedRef.current) return;
     bootstrappedRef.current = true;
@@ -191,20 +131,12 @@ export const AuthProvider = ({ children }) => {
         if (nextUser) {
           setUser(nextUser);
         } else {
-          // Defensive: server returned 200 but no user — treat as logout
-          // rather than render with stale token.
           writeToken(null);
           setToken(null);
         }
       } catch (error) {
         if (cancelled) return;
-        // 401 is the common case (revoked token); axios already cleared
-        // localStorage. 403 means the account was suspended (`protect`
-        // forbids inactive users) — the global interceptor ignores 403,
-        // so we clear the stored token here to avoid an undead session.
-        // Any other error (network, 5xx) shouldn't kick a user out, so we
-        // treat the session as anonymous for this load and let them retry
-        // by reloading.
+        // Only drop the token on 401/403; a network error or 5xx shouldn't log the user out.
         const status = error?.response?.status;
         if (status === 401 || status === 403) {
           writeToken(null);
@@ -220,10 +152,7 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  /* ---------- Cross-tab sync ----------
-   * If the user logs out in another tab, the `storage` event fires
-   * here. Mirroring the change keeps every tab consistent without
-   * polling. */
+  // The storage event fires when another tab logs in or out, keeping tabs in sync.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handler = (event) => {
@@ -233,7 +162,6 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
       } else if (event.newValue !== token) {
         setToken(event.newValue);
-        // We don't have the new user here; trigger a refresh.
         refresh();
       }
     };
@@ -260,11 +188,6 @@ export const AuthProvider = ({ children }) => {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-/**
- * Consumer hook with a guard so a forgotten `<AuthProvider>` fails
- * loudly in development instead of returning `undefined` and producing
- * cryptic null-deref errors deep inside a component.
- */
 export const useAuth = () => {
   const ctx = useContext(AuthContext);
   if (!ctx) {

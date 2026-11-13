@@ -1,22 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 
-/**
- * `useLocalStorage(key, initial)`
- *
- * A `useState`-shaped hook whose value is mirrored to `localStorage`.
- *
- * Implementation notes:
- *   - The lazy `useState` initializer reads storage exactly once on
- *     mount, avoiding an unnecessary parse on every re-render.
- *   - All `JSON.parse`/`stringify` calls are wrapped in try/catch so a
- *     corrupt entry (manual edit, shared origin, etc.) falls back to
- *     `initial` instead of throwing during render.
- *   - The `storage` event listener keeps tabs in sync: if the user
- *     toggles a setting in another tab, this tab updates without a
- *     reload.
- *   - SSR-safety: every `window` access is guarded so the same module
- *     can be imported by Vitest (jsdom) or future SSR setups.
- */
 export function useLocalStorage(key, initial) {
   const readValue = useCallback(() => {
     if (typeof window === 'undefined') return initial;
@@ -39,8 +22,7 @@ export function useLocalStorage(key, initial) {
             window.localStorage.setItem(key, JSON.stringify(resolved));
           }
         } catch {
-          /* Quota exceeded or storage disabled — keep React state
-           * consistent so the UI still works in private mode. */
+          // Storage full or disabled (private mode): keep the in-memory value anyway.
         }
         return resolved;
       });
@@ -48,6 +30,7 @@ export function useLocalStorage(key, initial) {
     [key],
   );
 
+  // The storage event only fires for changes made in other tabs.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handler = (event) => {

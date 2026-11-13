@@ -1,18 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 
-/**
- * `useNotificationPermission()`
- *
- * Thin wrapper around the Web Notifications API permission state.
- * Returns `{ permission, request }` where:
- *   - `permission` ∈ 'granted' | 'denied' | 'default' | 'unsupported'
- *   - `request()` triggers the browser prompt (only valid from a user
- *     gesture handler — calling it on mount does nothing on Chrome/iOS).
- *
- * `'unsupported'` is a synthetic state we use when the API is missing
- * (older Safari, some embedded webviews) so consumers can branch
- * without poking at `window.Notification` themselves.
- */
 export function useNotificationPermission() {
   const isSupported =
     typeof window !== 'undefined' && 'Notification' in window;
@@ -21,6 +8,7 @@ export function useNotificationPermission() {
     isSupported ? Notification.permission : 'unsupported',
   );
 
+  // Browsers only show the prompt when this runs from a user gesture such as a click.
   const request = useCallback(async () => {
     if (!isSupported) return 'unsupported';
     const result = await Notification.requestPermission();
@@ -28,12 +16,7 @@ export function useNotificationPermission() {
     return result;
   }, [isSupported]);
 
-  /**
-   * The Permissions API exposes a live `change` event so we can react
-   * if the user flips the site permission from the URL bar without
-   * reloading the page. Not every browser ships it (Safari < 16),
-   * hence the optional-chaining + try/catch guards.
-   */
+  // Picks up permission changes made from the browser's site settings without a reload.
   useEffect(() => {
     if (!isSupported || !navigator.permissions?.query) return undefined;
     let status;
@@ -49,7 +32,7 @@ export function useNotificationPermission() {
         status.addEventListener('change', handler);
       })
       .catch(() => {
-        /* noop — permission name unsupported in this browser */
+        // Some browsers can't query the 'notifications' permission.
       });
 
     return () => {

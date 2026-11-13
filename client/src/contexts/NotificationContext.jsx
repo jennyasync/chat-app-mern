@@ -17,31 +17,6 @@ import * as notificationService from '../api/notification.service.js';
 import { playNotificationSound } from '../utils/notificationSound.js';
 import { NOTIFICATION_BUFFER_SIZE } from '../utils/constants.js';
 
-/**
- * NotificationContext — turns the raw `notification:new` socket stream
- * into the things a user actually perceives:
- *   - the unread badge (`unreadCount`),
- *   - in-app toast,
- *   - native OS notification (when permission granted),
- *   - notification sound,
- *   - and a small in-memory ring buffer of the latest payloads.
- *
- * Suppression rules (matched on the client to avoid noise):
- *   1. If the user is currently looking at the source conversation, no
- *      surfacing happens — the message itself is already visible.
- *   2. If the user has globally muted notifications (`muteAll`) or
- *      muted this specific conversation (`mutedConversations`), no
- *      surfacing happens.
- *   3. Sound + browser notifications are individually gated by the
- *      respective preferences (`notifications.sound`,
- *      `notifications.browser`).
- *
- * The "active conversation" signal is exposed via
- * `setActiveConversationId` so the chat page can call it on mount and
- * `null` on unmount. Using a context method (not a global) keeps the
- * lifecycle bound to React and survives strict-mode double mounts.
- */
-
 const NotificationContext = createContext(null);
 
 export const NotificationProvider = ({ children }) => {
@@ -54,11 +29,7 @@ export const NotificationProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
 
-  /* Refs mirror the latest state so the socket subscriber (registered
-   * once per session) reads current values without us having to
-   * resubscribe on every render. Without this, `preferences` updates
-   * would cause the listener to be torn down + re-added — losing any
-   * in-flight events in between. */
+  // Refs let the socket listener read current values without resubscribing (and dropping events) on every change.
   const activeConversationRef = useRef(activeConversationId);
   const preferencesRef = useRef(preferences);
   const userRef = useRef(user);
@@ -66,17 +37,7 @@ export const NotificationProvider = ({ children }) => {
   useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
   useEffect(() => { userRef.current = user; }, [user]);
 
-  /* ---------- Hydrate unread count + recent items on login ----------
-   * The badge needs the right number BEFORE the first socket event
-   * arrives, otherwise it would render as zero on a fresh tab even
-   * when the user has 12 unread items waiting.
-   *
-   * We also pre-fill the in-memory ring buffer with the most recent
-   * persisted notifications so that opening the navbar dropdown on a
-   * fresh tab shows real history instead of a useless empty state.
-   * The full inbox page (`/notifications`) still drives its own
-   * paginated fetch — this hydration is purely for the always-mounted
-   * dropdown. */
+  // Load the badge count and recent items up front so a fresh tab doesn't show zero until the first socket event.
   useEffect(() => {
     if (!isAuthenticated) {
       setUnreadCount(0);
@@ -96,13 +57,12 @@ export const NotificationProvider = ({ children }) => {
         setNotifications(items);
         setUnreadCount(count);
       } catch {
-        /* Non-fatal — the badge will hydrate from the next event. */
+        // Non-fatal: the badge catches up on the next event.
       }
     })();
     return () => { cancelled = true; };
   }, [isAuthenticated]);
 
-  /* ---------- Subscribe to live notifications ---------- */
   useEffect(() => {
     if (!isAuthenticated) return undefined;
 
@@ -117,10 +77,8 @@ export const NotificationProvider = ({ children }) => {
       const currentUser = userRef.current;
       const activeId = activeConversationRef.current;
 
-      // Suppression rule 1: conversation is open.
       if (conversationId && conversationId === activeId) return;
 
-      // Suppression rule 2: muted (global or per-conversation).
       if (currentPrefs?.notifications?.muteAll) return;
       const mutedList = currentUser?.mutedConversations ?? [];
       if (
@@ -130,22 +88,13 @@ export const NotificationProvider = ({ children }) => {
         return;
       }
 
-      // Build a body string. Image-only messages have no `text`; show a
-      // generic placeholder rather than an empty string.
       let body = message?.text || '';
-      if (!body && message?.imageUrl) body = '📷 Photo';
+      if (!body && message?.imageUrl) body = 'Photo';
       if (!body) body = 'New message';
 
       const title = fromUser?.displayName || 'New notification';
 
-      // 1. Bump in-memory state.
-      //
-      // The server collapses bursts from the same (recipient, conversation)
-      // into ONE persisted row within a 30s window, re-emitting the SAME
-      // notification `_id`. Blindly incrementing on every event would make
-      // the badge drift above the real unread-row count, so we only bump
-      // the counter for a genuinely new row (or the local fallback when
-      // persistence failed). A collapse just refreshes the existing entry.
+      // The server collapses bursts into one row and re-sends the same _id, so only a new row bumps the count.
       const persisted = payload.notification ?? null;
       let isCollapse = false;
       setNotifications((prev) => {
@@ -177,19 +126,13 @@ export const NotificationProvider = ({ children }) => {
       });
       if (!isCollapse) setUnreadCount((prev) => prev + 1);
 
-      // 2. Toast — always (cheap, in-app, can be visually muted via prefs.animations
-      // through global CSS if needed).
-      toast(`${title}: ${body}`, { icon: '💬' });
+      toast(`${title}: ${body}`);
 
-      // 3. Sound — gated.
       if (currentPrefs?.notifications?.sound) {
         playNotificationSound();
       }
 
-      // 4. Native browser notification — gated + permission required.
-      // `tag: conversationId` collapses repeated alerts from the same
-      // chat into a single OS-level notification, so a long thread
-      // doesn't spam the user's notification tray.
+      // `tag` makes the OS replace earlier alerts from the same chat instead of stacking them.
       if (
         currentPrefs?.notifications?.browser &&
         typeof window !== 'undefined' &&
@@ -199,18 +142,16 @@ export const NotificationProvider = ({ children }) => {
       ) {
         try {
           const notif = new Notification(title, {
-            body, // plain text — Notification API does NOT parse HTML
+            body,
             icon: fromUser?.avatarUrl || '/favicon.svg',
             tag: conversationId || undefined,
           });
-          // Clicking the OS notification surfaces the tab; we leave
-          // routing to whoever wires this up at the app level.
           notif.onclick = () => {
             window.focus();
             notif.close();
           };
         } catch {
-          /* Permission revoked between check and call, or quota hit. */
+          // Permission can be revoked between the check and the call.
         }
       }
     });
@@ -218,25 +159,20 @@ export const NotificationProvider = ({ children }) => {
     return unsubscribe;
   }, [isAuthenticated, subscribeToNotifications]);
 
-  /* ---------- Imperative API for consumers ---------- */
-
   const markRead = useCallback(async (id) => {
     setNotifications((prev) =>
       prev.map((n) => (n._id === id ? { ...n, isRead: true } : n)),
     );
     setUnreadCount((prev) => Math.max(0, prev - 1));
-    // Local fallback rows (persistence failed server-side) have no DB
-    // counterpart — hitting `/notifications/:id/read` with a synthetic id
-    // would 400/404, so we update local state only.
+    // Local fallback rows were never saved on the server, so there is nothing to mark there.
     if (typeof id === 'string' && id.startsWith('local-')) return;
     try {
       await notificationService.markRead(id);
     } catch (error) {
-      // Re-fetch the count to repair drift on failure.
       try {
         const result = await notificationService.getUnreadCount();
         setUnreadCount(result?.data?.count ?? 0);
-      } catch { /* swallow */ }
+      } catch { /* ignore */ }
       throw error;
     }
   }, []);
@@ -253,11 +189,6 @@ export const NotificationProvider = ({ children }) => {
     }
   }, [unreadCount]);
 
-  /**
-   * Dismiss removes a notification permanently (server + local cache).
-   * Used by the full inbox page; the dropdown only marks-read so the
-   * collapse window stays useful for the same-conversation tag.
-   */
   const dismiss = useCallback(async (id) => {
     let snapshot;
     let wasUnread = false;
@@ -271,7 +202,6 @@ export const NotificationProvider = ({ children }) => {
     try {
       await notificationService.dismiss(id);
     } catch (error) {
-      // Roll back so the user doesn't lose context on transient failure.
       setNotifications(snapshot);
       if (wasUnread) setUnreadCount((prev) => prev + 1);
       throw error;

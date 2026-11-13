@@ -36,37 +36,7 @@ import AdminUsers from './pages/admin/AdminUsers.jsx';
 import LandingPage from './pages/LandingPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 
-/**
- * App — single source of truth for the URL space.
- *
- * Tree shape mirrors the Step 22 spec exactly:
- *
- *   Public:
- *     /                             → LandingPage (auto-redirects authed users to /chat)
- *
- *   Public (guest-only):
- *     /login, /register             → AuthLayout
- *
- *   Authenticated (chat surface — no navbar):
- *     /chat                         → EmptyChatPage
- *     /chat/:conversationId         → ChatPage
- *
- *   Authenticated (with navbar):
- *     /u/:username                  → ProfilePage
- *     /notifications                → NotificationsPage
- *     /settings/*                   → SettingsLayout
- *     /admin/*  (admin role only)   → AdminLayout
- *
- *   Catch-all:
- *     *                             → NotFoundPage
- *
- * Why nest layouts as routes (instead of wrapping each page):
- *   `<Outlet />` lets a single instance of (e.g.) `MainLayout` stay
- *   mounted while the user navigates between sub-pages. That keeps
- *   the navbar from re-rendering its dropdown state on every route
- *   change, and lets the chat sidebar persist its scroll position
- *   when switching between conversations.
- */
+// Layouts are layout routes so they stay mounted (sidebar scroll, navbar state) while child pages change.
 const App = () => {
   return (
     <Routes>

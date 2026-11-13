@@ -1,16 +1,5 @@
 import api from './axios.js';
 
-/**
- * Message service — split between the conversation-scoped surface
- * (`/api/conversations/:id/messages`) and the flat per-message surface
- * (`/api/messages/:id/...`). Callers shouldn't need to know which.
- *
- * `sendMessage` is exposed as a REST fallback. The primary send path is
- * the Socket.io `message:send` event (real-time + ack), but if the
- * socket is disconnected the UI degrades to this HTTP call so the user
- * never loses a message they typed.
- */
-
 export const getMessages = async (conversationId, { before, limit = 30 } = {}) => {
   const { data } = await api.get(`/conversations/${conversationId}/messages`, {
     params: { before, limit },
@@ -18,6 +7,7 @@ export const getMessages = async (conversationId, { before, limit = 30 } = {}) =
   return data;
 };
 
+// HTTP fallback for when the socket is down; normal sends go through the message:send event.
 export const sendMessage = async (conversationId, payload) => {
   const { data } = await api.post(
     `/conversations/${conversationId}/messages`,
@@ -31,13 +21,7 @@ export const editMessage = async (messageId, text) => {
   return data;
 };
 
-/**
- * Soft-delete by default. The `scope` parameter ('self' | 'everyone')
- * mirrors the socket `message:delete` event; the server reads it from
- * the request body and applies the same authorisation rules
- * (sender + 5-min window OR admin for 'everyone'). `hard` is reserved
- * for admin UI which calls `forceDeleteMessage` in `admin.service`.
- */
+// scope is 'self' or 'everyone', same as the socket message:delete event.
 export const deleteMessage = async (
   messageId,
   { scope = 'self', hard = false } = {},

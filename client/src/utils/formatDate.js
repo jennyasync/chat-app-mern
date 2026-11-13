@@ -1,32 +1,4 @@
-/**
- * Locale-aware absolute date/time formatters used across the chat
- * surface. Kept distinct from `formatRelativeTime.js`, which produces
- * the *short* relative labels for the conversation list ("now", "5m",
- * "Mon"). The helpers in this file render *absolute* values:
- *
- *   - `formatClockTime`     — "HH:MM" inside a message bubble.
- *   - `formatDaySeparator`  — "Today" / "Yesterday" / "12 Apr 2026"
- *                             between two messages on different days.
- *   - `formatLastSeen`      — "just now" / "5 min ago" / "12 Apr"
- *                             for the offline-presence subtitle.
- *   - `isSameCalendarDay`   — pure predicate used by the timeline to
- *                             decide whether to insert a day separator.
- *
- * Performance: every `Intl.DateTimeFormat` is allocated once at module
- * scope. Constructing a formatter is the expensive part — calling
- * `.format(date)` on an existing one is cheap. With a 500-message
- * timeline this avoids ~1000 unnecessary allocations per render.
- *
- * Privacy: `formatLastSeen` deliberately rounds to coarse buckets and
- * never exposes a precise timestamp. Surfacing the exact second a user
- * went offline would broadcast their activity pattern to anyone they
- * have ever spoken with.
- *
- * Robustness: every helper returns an empty string for falsy /
- * unparseable input so the caller can render the result inline without
- * a defensive guard.
- */
-
+// Formatters are built once at module load; creating an Intl.DateTimeFormat is the slow part.
 const DAY_SEPARATOR_FORMATTER = new Intl.DateTimeFormat(undefined, {
   day: '2-digit',
   month: 'short',
@@ -38,11 +10,7 @@ const TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
 });
 
-/**
- * `isSameCalendarDay(a, b)` — true iff two dates fall on the same Y/M/D
- * in the user's LOCAL timezone. Day separators must respect the viewer's
- * locale, so we never compare on UTC components.
- */
+// Compares local date parts, not UTC, so day separators follow the viewer's timezone.
 export const isSameCalendarDay = (a, b) => {
   if (!a || !b) return false;
   const dateA = a instanceof Date ? a : new Date(a);
@@ -55,13 +23,6 @@ export const isSameCalendarDay = (a, b) => {
   );
 };
 
-/**
- * `formatDaySeparator(input)` — "Today" / "Yesterday" / "12 Apr 2026".
- *
- * Used between consecutive messages whose calendar day differs. The
- * "Today" / "Yesterday" labels are English literals matching the rest
- * of the UI copy; a future i18n pass would localize them.
- */
 export const formatDaySeparator = (input, now = Date.now()) => {
   if (!input) return '';
   const date = input instanceof Date ? input : new Date(input);
@@ -76,11 +37,6 @@ export const formatDaySeparator = (input, now = Date.now()) => {
   return DAY_SEPARATOR_FORMATTER.format(date);
 };
 
-/**
- * `formatClockTime(input)` — locale-aware "HH:MM" used inside message
- * bubbles. Returns an empty string for falsy/invalid input so callers
- * can render the result inline without guards.
- */
 export const formatClockTime = (input) => {
   if (!input) return '';
   const date = input instanceof Date ? input : new Date(input);
@@ -88,13 +44,7 @@ export const formatClockTime = (input) => {
   return TIME_FORMATTER.format(date);
 };
 
-/**
- * `formatLastSeen(input)` — "just now", "5 min ago", "2 h ago", "12 Apr".
- *
- * Drives the chat header subtitle when the other participant is offline
- * AND has `showOnlineStatus` enabled. Strings are kept short (header
- * line is narrow on mobile) and the exact timestamp is never exposed.
- */
+// Coarse buckets on purpose: an exact last-seen time would expose someone's activity pattern.
 export const formatLastSeen = (input, now = Date.now()) => {
   if (!input) return '';
   const date = input instanceof Date ? input : new Date(input);

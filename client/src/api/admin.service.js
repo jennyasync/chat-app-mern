@@ -1,11 +1,6 @@
 import api from './axios.js';
 
-/**
- * Admin service — `/api/admin/*`. Every endpoint here is gated by
- * `protect + adminOnly + adminLimiter` on the server, so the UI MUST
- * also gate its admin routes by `currentUser.role === 'admin'` — never
- * trust the absence of a 403 as proof of authorization.
- */
+// The server gates all of these with protect + adminOnly; the UI admin guard is only for UX.
 
 export const getStats = async () => {
   const { data } = await api.get('/admin/stats');
@@ -56,22 +51,13 @@ export const updateReport = async (id, payload) => {
   return data;
 };
 
-/**
- * Force-deletes a message regardless of sender or time-window. The
- * server still emits `message:deleted` so participants' UIs redact the
- * bubble in real time — no manual client-side broadcast needed.
- */
+// The server emits message:deleted, so open chats redact the bubble without extra client work.
 export const forceDeleteMessage = async (id) => {
   const { data } = await api.delete(`/admin/messages/${id}`);
   return data;
 };
 
-/**
- * Read-only audit window into any conversation. Server uses
- * offset-based pagination (`page`/`limit`) — every successful access
- * is appended to `AdminAuditLog` server-side, so callers can rely on
- * the leak being recorded even before the response resolves.
- */
+// Every call is recorded in AdminAuditLog on the server.
 export const getConversationMessages = async (id, { page = 1, limit = 30 } = {}) => {
   const { data } = await api.get(`/admin/conversations/${id}/messages`, {
     params: { page, limit },
