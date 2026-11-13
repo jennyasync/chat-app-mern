@@ -13,39 +13,7 @@ import CharacterCounter from '../common/CharacterCounter.jsx';
 import Modal from '../common/Modal.jsx';
 import UserSearchInput from '../chat/UserSearchInput.jsx';
 
-/**
- * NewGroupModal — two-step wizard for creating a group conversation.
- *
- * Step "members":
- *   Multi-select via the shared `UserSearchInput`. Selected users are
- *   pinned at the top as removable chips so the user can review the
- *   roster without losing context while continuing to search. The
- *   creator is always added by the server, so we cap the user-selected
- *   list at `MAX_PARTICIPANTS - 1`.
- *
- * Step "details":
- *   Group name (required, ≤50 chars to mirror the server validator)
- *   plus an optional avatar. The avatar is uploaded to Cloudinary
- *   *before* `createGroup` so we can pass back a vetted URL: see
- *   `uploadGroupAvatar` for why it routes through `/upload/message-image`
- *   rather than `/upload/avatar`.
- *
- * Why we keep selection state in the modal rather than the parent:
- *   The selection is wizard-scoped — abandoning the flow should
- *   discard any pending picks. Lifting it out would force the parent
- *   to remember to clear that buffer on cancel, which is a recurring
- *   source of "ghost" state bugs in modal flows.
- *
- * SECURITY:
- *   - Member cap is enforced both in the UI (button disabled, search
- *     rows greyed out) AND server-side (authoritative).
- *   - Avatar uploads run through the same MIME/size pipeline as
- *     profile avatars; we additionally pre-check size client-side
- *     for instant feedback so a 25 MB photo never leaves the device.
- *   - Object URLs created for the local preview are revoked on unmount
- *     to prevent a browser-side memory leak.
- */
-
+// The server adds the creator itself, so the picker allows one fewer than the group limit.
 const MAX_OTHER_PARTICIPANTS = GROUP_RULES.MAX_PARTICIPANTS - 1;
 const MAX_AVATAR_BYTES = GROUP_RULES.AVATAR_MAX_SIZE_MB * 1024 * 1024;
 const ACCEPTED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -71,9 +39,6 @@ const NewGroupModal = ({ open, onClose }) => {
   const trimmedName = groupName.trim();
   const isAtCap = selected.length >= MAX_OTHER_PARTICIPANTS;
 
-  /* Reset wizard state every time the dialog reopens — leaving stale
-   * selection or a dangling preview URL would surprise the user on
-   * the next "New group" click. */
   const resetState = useCallback(() => {
     setStep('members');
     setSelected([]);
@@ -111,7 +76,7 @@ const NewGroupModal = ({ open, onClose }) => {
         const exists = prev.some((entry) => idOf(entry) === targetId);
         if (exists) return prev.filter((entry) => idOf(entry) !== targetId);
         if (prev.length >= MAX_OTHER_PARTICIPANTS) {
-          toast.error(`You can add up to ${MAX_OTHER_PARTICIPANTS} people.`);
+          toast.error(`You can add up to ${MAX_OTHER_PARTICIPANTS} people`);
           return prev;
         }
         return [...prev, target];
@@ -130,11 +95,12 @@ const NewGroupModal = ({ open, onClose }) => {
     if (!file) return;
 
     if (!ACCEPTED_MIME_TYPES.includes(file.type)) {
-      toast.error('Avatar must be a JPEG, PNG, or WEBP image.');
+      toast.error('Avatar must be a JPEG, PNG, or WEBP image');
       return;
     }
+    // Checked here for fast feedback; the upload endpoint validates again.
     if (file.size > MAX_AVATAR_BYTES) {
-      toast.error(`Image must be smaller than ${GROUP_RULES.AVATAR_MAX_SIZE_MB} MB.`);
+      toast.error(`Image must be smaller than ${GROUP_RULES.AVATAR_MAX_SIZE_MB} MB`);
       return;
     }
 
@@ -156,12 +122,12 @@ const NewGroupModal = ({ open, onClose }) => {
   const handleSubmit = async () => {
     if (isSubmitting) return;
     if (selected.length === 0) {
-      toast.error('Add at least one other person.');
+      toast.error('Add at least one other person');
       setStep('members');
       return;
     }
     if (trimmedName.length === 0) {
-      toast.error('Group name is required.');
+      toast.error('Group name is required');
       return;
     }
 
@@ -190,7 +156,7 @@ const NewGroupModal = ({ open, onClose }) => {
         throw new Error('Group could not be created');
       }
       upsertConversation(conversation);
-      toast.success(`"${conversation.name}" created.`);
+      toast.success(`"${conversation.name}" created`);
       onClose?.();
       navigate(`/chat/${conversation._id}`);
     } catch (err) {
@@ -202,7 +168,6 @@ const NewGroupModal = ({ open, onClose }) => {
     }
   };
 
-  /* ---------- Footer ---------- */
   const footer =
     step === 'members' ? (
       <>
@@ -281,12 +246,12 @@ const NewGroupModal = ({ open, onClose }) => {
           {selected.length > 0 ? (
             <div className="border-b border-gray-200 px-5 py-3 dark:border-gray-800">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide dark:text-gray-400">
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
                   Selected ({selected.length}/{MAX_OTHER_PARTICIPANTS})
                 </span>
                 {isAtCap ? (
                   <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                    Group capacity reached.
+                    Group is full
                   </span>
                 ) : null}
               </div>
@@ -325,9 +290,8 @@ const NewGroupModal = ({ open, onClose }) => {
             autoFocus
             selectedIds={selectedIds}
             excludeIds={currentUserId ? [currentUserId] : []}
-            disabledIds={isAtCap ? [] : []}
             onToggle={handleToggleMember}
-            placeholder="Search people to add…"
+            placeholder="Search people"
             emptyHint="Try a different spelling or @username."
           />
         </div>

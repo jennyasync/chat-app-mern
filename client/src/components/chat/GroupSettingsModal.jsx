@@ -21,6 +21,7 @@ import {
   ShieldOff,
   Trash2,
   UserMinus,
+  UserPlus,
   Users,
   X,
 } from 'lucide-react';
@@ -36,55 +37,10 @@ import * as conversationService from '../../api/conversation.service.js';
 import { uploadGroupAvatar } from '../../api/upload.service.js';
 import { GROUP_RULES } from '../../utils/constants.js';
 
-/**
- * GroupSettingsModal — single surface for managing every member-facing
- * aspect of a group conversation. Opened from `ChatHeader` when the user
- * taps the group identity row.
- *
- * Sections:
- *   - Members  → roster with role badges + per-row admin actions.
- *   - Add      → admin-only `UserSearchInput` (multi-select) wired to
- *                `addMembers`. Existing members are excluded client-side
- *                so the row never appears as a duplicate.
- *   - Notifications → per-user mute toggle (persists in
- *                `User.mutedConversations`).
- *   - Danger zone   → "Leave group" (any participant) and a contextual
- *                "Delete group" affordance that maps to leave-as-last-admin
- *                (the server tombstones the doc instead of hard-deleting,
- *                preserving the audit trail).
- *
- * Why everything lives in one modal instead of separate dialogs:
- *   The actions form a cohesive "manage this chat" task. Splitting them
- *   would force the user to dismiss/reopen four overlays to do something
- *   common like "rename + add a member + leave a draft of this for later".
- *   A tabbed surface keeps the cognitive load low while still letting the
- *   admin-only rails stay hidden for plain members (no taunting greyed
- *   buttons).
- *
- * State ownership:
- *   The live `conversation` is owned by `ChatPage` (the parent) so socket
- *   echoes (`group:updated`, `group:adminChanged`, …) can flow into it
- *   without going through the modal. After every mutation we call
- *   `onConversationUpdated` with the server's authoritative payload so
- *   the parent can patch its slice AND update the sidebar list in one go.
- *
- * SECURITY:
- *   - Every admin action is re-validated server-side (`assertGroupAdmin`).
- *     The UI hides controls as a UX courtesy; never as a security gate.
- *   - Member rows show `displayName`, avatar, and presence (only when
- *     the member's own privacy preference allows). Email is never read
- *     into this component.
- *   - "Promote/Demote self" is disabled — a user manipulating their own
- *     admin status here would bypass the cooperative governance model
- *     (the only legitimate self-demote path is to leave the group).
- *   - "Delete group" is intentionally a thin wrapper around the same
- *     `DELETE /:id` endpoint as "Leave group"; the server alone decides
- *     whether to mark `isActive: false` based on remaining membership.
- */
-
+// Admin controls are hidden for non-admins as UX only; the server re-checks every admin action.
 const TABS = [
   { id: 'members', label: 'Members', icon: Users },
-  { id: 'add', label: 'Add', icon: UserMinus, adminOnly: true },
+  { id: 'add', label: 'Add', icon: UserPlus, adminOnly: true },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'danger', label: 'Danger zone', icon: AlertTriangle },
 ];
@@ -108,9 +64,6 @@ const GroupSettingsModal = ({
   const currentUserId = user?._id ? String(user._id) : null;
   const conversationId = conversation?._id ? String(conversation._id) : null;
 
-  /* ---------- Derived membership info ----------
-   * Memoised so every row in the Members list doesn't recompute the
-   * admin set on each render. */
   const adminIds = useMemo(
     () => new Set((conversation?.admins ?? []).map((id) => String(id))),
     [conversation?.admins],
@@ -133,22 +86,16 @@ const GroupSettingsModal = ({
     );
   }, [conversationId, user?.mutedConversations]);
 
-  /* ---------- Tab state ----------
-   * Reset to "members" on every open so the modal never reopens on a
-   * stale tab the user can't see (e.g. "add" after they were demoted). */
   const [activeTab, setActiveTab] = useState('members');
   useEffect(() => {
     if (open) setActiveTab('members');
   }, [open]);
 
-  // If the current user loses admin while the "add" tab is selected,
-  // bounce them back to the visible members tab so the body never
-  // renders an empty surface.
+  // Being demoted while on the admin-only "add" tab would leave it empty.
   useEffect(() => {
     if (activeTab === 'add' && !isCurrentUserAdmin) setActiveTab('members');
   }, [activeTab, isCurrentUserAdmin]);
 
-  /* ---------- Header: rename + avatar (admin only) ---------- */
   const [isEditingName, setIsEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [isSavingName, setIsSavingName] = useState(false);
@@ -177,7 +124,7 @@ const GroupSettingsModal = ({
     if (!conversationId || isSavingName) return;
     const trimmed = draftName.trim();
     if (trimmed.length === 0) {
-      toast.error('Group name cannot be empty.');
+      toast.error('Group name cannot be empty');
       return;
     }
     if (trimmed === conversation?.name) {
@@ -194,10 +141,10 @@ const GroupSettingsModal = ({
         onConversationUpdated?.(updated);
         upsertConversation(updated);
       }
-      toast.success('Group renamed.');
+      toast.success('Group renamed');
       setIsEditingName(false);
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Could not rename group.');
+      toast.error(err?.response?.data?.message || 'Could not rename group');
     } finally {
       setIsSavingName(false);
     }
@@ -217,7 +164,7 @@ const GroupSettingsModal = ({
       if (!file || !conversationId || isUploadingAvatar) return;
 
       if (!ACCEPTED_MIME_TYPES.includes(file.type)) {
-        toast.error('Avatar must be a JPEG, PNG, or WEBP image.');
+        toast.error('Avatar must be a JPEG, PNG, or WEBP image');
         return;
       }
       if (file.size > MAX_AVATAR_BYTES) {
@@ -241,7 +188,7 @@ const GroupSettingsModal = ({
           onConversationUpdated?.(updated);
           upsertConversation(updated);
         }
-        toast.success('Group photo updated.');
+        toast.success('Group photo updated');
       } catch (err) {
         toast.error(
           err?.response?.data?.message ||
@@ -260,10 +207,6 @@ const GroupSettingsModal = ({
     ],
   );
 
-  /* ---------- Per-row member actions (admin) ----------
-   * `busyMemberId` provides a single-row spinner so the rest of the list
-   * stays interactive. The map-of-busys was overkill: a group has at
-   * most one in-flight admin action at a time. */
   const [busyMemberId, setBusyMemberId] = useState(null);
 
   const applyConversationUpdate = useCallback(
@@ -288,7 +231,7 @@ const GroupSettingsModal = ({
           { promote: makeAdmin },
         );
         applyConversationUpdate(result?.data);
-        toast.success(makeAdmin ? 'Promoted to admin.' : 'Admin removed.');
+        toast.success(makeAdmin ? 'Promoted to admin' : 'Admin removed');
       } catch (err) {
         toast.error(
           err?.response?.data?.message ||
@@ -317,10 +260,10 @@ const GroupSettingsModal = ({
           targetId,
         );
         applyConversationUpdate(result?.data);
-        toast.success('Member removed.');
+        toast.success('Member removed');
       } catch (err) {
         toast.error(
-          err?.response?.data?.message || 'Could not remove member.',
+          err?.response?.data?.message || 'Could not remove member',
         );
       } finally {
         setBusyMemberId(null);
@@ -329,7 +272,6 @@ const GroupSettingsModal = ({
     [applyConversationUpdate, busyMemberId, conversationId, currentUserId],
   );
 
-  /* ---------- Add members (admin) ---------- */
   const [pendingAdds, setPendingAdds] = useState([]);
   const [isAddingMembers, setIsAddingMembers] = useState(false);
 
@@ -337,9 +279,7 @@ const GroupSettingsModal = ({
     if (!open) setPendingAdds([]);
   }, [open]);
 
-  // Drop any pending picks that became members through another device /
-  // admin while the modal was open — re-adding would just hit the
-  // "already a member" 4xx.
+  // Drop picks that someone else added while the modal was open, or the server would reject them.
   useEffect(() => {
     if (pendingAdds.length === 0) return;
     const memberSet = new Set(participantIds);
@@ -375,7 +315,7 @@ const GroupSettingsModal = ({
       setActiveTab('members');
     } catch (err) {
       toast.error(
-        err?.response?.data?.message || 'Could not add members.',
+        err?.response?.data?.message || 'Could not add members',
       );
     } finally {
       setIsAddingMembers(false);
@@ -387,14 +327,11 @@ const GroupSettingsModal = ({
     pendingAdds,
   ]);
 
-  /* ---------- Notifications ---------- */
   const [isMuting, setIsMuting] = useState(false);
   const handleToggleMute = useCallback(async () => {
     if (!conversationId || isMuting) return;
     setIsMuting(true);
-    // Optimistic flip on the local user. The REST response carries the
-    // canonical mutedConversations array so a concurrent mutation from
-    // another device will reconcile after the round-trip.
+    // Optimistic flip; the response's mutedConversations list then replaces it.
     updateUser((prev) => {
       if (!prev) return prev;
       const list = prev.mutedConversations ?? [];
@@ -411,8 +348,7 @@ const GroupSettingsModal = ({
         updateUser({ mutedConversations: serverList });
       }
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Could not update mute.');
-      // Revert by flipping again — we never assumed authoritative state.
+      toast.error(err?.response?.data?.message || 'Could not update mute');
       updateUser((prev) => {
         if (!prev) return prev;
         const list = prev.mutedConversations ?? [];
@@ -427,13 +363,12 @@ const GroupSettingsModal = ({
     }
   }, [conversationId, isMuting, updateUser]);
 
-  /* ---------- Danger zone ---------- */
   const [isLeaving, setIsLeaving] = useState(false);
   const handleLeaveOrDelete = useCallback(
     async ({ asDelete }) => {
       if (!conversationId || isLeaving) return;
       const promptMessage = asDelete
-        ? `Delete the group "${conversation?.name}"? You're the only admin — the group will be closed for everyone. Past messages remain on every member's device. This cannot be undone.`
+        ? `Delete the group "${conversation?.name}"? You're the only admin, so the group will be closed for everyone. Past messages remain on every member's device. This cannot be undone.`
         : `Leave the group "${conversation?.name}"?`;
       const ok = window.confirm(promptMessage);
       if (!ok) return;
@@ -441,7 +376,7 @@ const GroupSettingsModal = ({
       try {
         await conversationService.leaveOrDeleteConversation(conversationId);
         removeConversation(conversationId);
-        toast.success(asDelete ? 'Group closed.' : 'You left the group.');
+        toast.success(asDelete ? 'Group closed' : 'You left the group');
         onClose?.();
         navigate('/chat', { replace: true });
       } catch (err) {
@@ -463,7 +398,6 @@ const GroupSettingsModal = ({
     ],
   );
 
-  /* ---------- Renderers ---------- */
   const renderHeader = () => (
     <div className="flex flex-col items-center gap-3 border-b border-gray-200 px-5 py-5 text-center dark:border-gray-800">
       <div className="relative">
@@ -602,8 +536,7 @@ const GroupSettingsModal = ({
     const isAdminMember = adminIds.has(memberId);
     const isSelf = memberId === currentUserId;
     const isBusy = busyMemberId === memberId;
-    // Server already nulls `isOnline` for members who hide presence;
-    // re-checking the boolean shields us from any stale cached payload.
+    // The server omits isOnline for members who hide their presence.
     const showsPresence = member?.isOnline !== undefined;
     const isOnline = showsPresence && onlineUserIds.has(memberId);
 
@@ -717,8 +650,7 @@ const GroupSettingsModal = ({
         </p>
       );
     }
-    // Admins float to the top so the role hierarchy is visually obvious;
-    // among admins, current user first; otherwise insertion order.
+    // Admins first, then the current user, otherwise original order.
     const sorted = [...members].sort((a, b) => {
       const aAdmin = adminIds.has(idOf(a));
       const bAdmin = adminIds.has(idOf(b));
@@ -736,7 +668,7 @@ const GroupSettingsModal = ({
       {pendingAdds.length > 0 ? (
         <div className="border-b border-gray-200 px-5 py-3 dark:border-gray-800">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
               To add ({pendingAdds.length})
             </span>
           </div>
@@ -774,12 +706,9 @@ const GroupSettingsModal = ({
         mode="multi"
         autoFocus
         selectedIds={pendingAdds.map(idOf)}
-        // Existing members are excluded from results so the row never
-        // appears as a duplicate. The server would 4xx anyway, but
-        // hiding them avoids the "why can't I select Bob?" confusion.
         excludeIds={participantIds}
         onToggle={togglePendingAdd}
-        placeholder="Search people to add…"
+        placeholder="Search people"
         emptyHint="They might already be in this group."
       />
 

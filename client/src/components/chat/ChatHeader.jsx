@@ -25,39 +25,6 @@ import * as conversationService from '../../api/conversation.service.js';
 import * as userService from '../../api/user.service.js';
 import { formatLastSeen } from '../../utils/formatDate.js';
 
-/**
- * ChatHeader — top bar of the conversation panel.
- *
- * Responsibilities:
- *   - Render identity (other-user avatar+name+presence for direct,
- *     group avatar+name+member count for groups).
- *   - Surface the "back to list" arrow on mobile (URL-driven layout —
- *     just navigates back to /chat which the layout shows as the list).
- *   - Mute toggle (per conversation), inline search trigger placeholder,
- *     and a more-menu with destructive actions:
- *       direct → "Block user"
- *       group  → "Leave group"
- *       always → "Report"
- *
- * STEP 27 scope:
- *   The mute action is wired all the way through (REST + local state).
- *   "Block", "Leave group", "Report" trigger their respective flows
- *   immediately with a confirmation prompt. Dedicated modals
- *   (`BlockUserModal`, `ReportModal`, `GroupSettingsModal`) come in
- *   later steps and will replace the inline `confirm()` paths without
- *   altering the menu structure.
- *
- * Privacy:
- *   - Presence row only appears when the OTHER user has
- *     `showOnlineStatus !== false`. This is enforced server-side
- *     (`isOnline`/`lastSeenAt` are nulled in the participant payload),
- *     but we re-check the boolean here so a stale cached participant
- *     can never leak the dot or "Last seen" copy.
- *   - The "search in conversation" affordance is a placeholder for a
- *     future overlay; clicking it currently focuses the input but does
- *     not yet wire to `searchMessages`. STEP 28+ will own that flow.
- */
-
 const idOf = (value) => (value && value._id ? String(value._id) : String(value ?? ''));
 
 const ChatHeader = ({
@@ -69,7 +36,7 @@ const ChatHeader = ({
   const navigate = useNavigate();
   const { user, updateUser } = useAuth();
   const { onlineUserIds } = useSocket();
-  const { upsertConversation, removeConversation } = useChatState();
+  const { removeConversation } = useChatState();
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
@@ -90,6 +57,7 @@ const ChatHeader = ({
     );
   }, [conversation, currentUserId, isGroup]);
 
+  // The server already hides presence for these users; this also covers stale cached data.
   const otherShowsPresence =
     !!otherParticipant && otherParticipant.showOnlineStatus !== false;
 
@@ -128,13 +96,10 @@ const ChatHeader = ({
     return list.some((id) => String(id) === conversationId);
   }, [conversationId, user?.mutedConversations]);
 
-  /* ---------- Mute toggle ---------- */
   const handleToggleMute = useCallback(async () => {
     if (!conversationId || isMutating) return;
     setIsMutating(true);
-    // Optimistic: flip locally so the icon reacts immediately. The REST
-    // call returns the canonical mutedConversations array which we use to
-    // reconcile in case of concurrent mutations from another device.
+    // Flip locally first, then trust the list the server sends back.
     updateUser((prev) => {
       if (!prev) return prev;
       const list = prev.mutedConversations ?? [];
@@ -152,7 +117,7 @@ const ChatHeader = ({
       }
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Could not update mute');
-      // Revert by flipping again — we never assumed authoritative state.
+      // Revert by flipping again.
       updateUser((prev) => {
         if (!prev) return prev;
         const list = prev.mutedConversations ?? [];
@@ -167,7 +132,6 @@ const ChatHeader = ({
     }
   }, [conversationId, isMutating, updateUser]);
 
-  /* ---------- Block / Leave / Report (placeholders for later modals) ---------- */
   const handleBlockUser = useCallback(async () => {
     if (!otherParticipant?._id || isBlocking) return;
     const ok = window.confirm(
@@ -179,8 +143,6 @@ const ChatHeader = ({
     try {
       await userService.blockUser(otherParticipant._id);
       toast.success(`${displayName} has been blocked`);
-      // Refresh the user so blockedUsers updates everywhere (e.g.
-      // settings page, future BlockedUsersSettings).
       updateUser((prev) =>
         prev
           ? {
@@ -219,21 +181,13 @@ const ChatHeader = ({
 
   const handleReport = useCallback(() => {
     setMenuOpen(false);
-    // STEP 33+ wires `ReportModal`. We expose the entry point now so
-    // the menu structure doesn't churn when the modal lands.
-    toast(
-      'Reporting will arrive with the moderation modal in a later step.',
-      { icon: 'ℹ️' },
-    );
+    toast('Reporting is not available yet.');
   }, []);
 
   const handleHeaderClick = useCallback(() => {
     if (isGroup && onOpenGroupSettings) onOpenGroupSettings();
   }, [isGroup, onOpenGroupSettings]);
 
-  /* Header acts as a button for groups (opens settings panel) and as a
-   * link to the peer's profile for direct chats. We compute the
-   * destination once so the JSX below stays a single shared block. */
   const peerProfileTo = useMemo(() => {
     if (isGroup) return null;
     const username = otherParticipant?.username;
@@ -287,7 +241,6 @@ const ChatHeader = ({
     </>
   );
 
-  /* ---------- Render ---------- */
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-2 dark:border-gray-800 dark:bg-gray-900">
       <Link

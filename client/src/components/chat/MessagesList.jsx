@@ -21,61 +21,11 @@ import { useInfiniteScroll } from '../../hooks/useInfiniteScroll.js';
 import { groupConsecutiveBy } from '../../utils/helpers.js';
 import { formatDaySeparator, isSameCalendarDay } from '../../utils/formatDate.js';
 
-/**
- * MessagesList — middle scrollable region of the chat panel.
- *
- * Owns three responsibilities the parent shouldn't care about:
- *   1. Visual layout: day separators, sender grouping, system rows.
- *   2. Scroll behaviour:
- *      - Infinite scroll up (top sentinel → fetch older page).
- *      - Auto-stick to bottom when the user is already near it
- *        (within `STICK_THRESHOLD` pixels). Otherwise show the
- *        "↓ New messages" pill so reading older history is never
- *        interrupted.
- *      - One-shot scroll-to-bottom on initial mount + on outgoing
- *        sends (parent calls `scrollToBottom` via ref).
- *   3. Status display: top loader while paging, "Beginning of
- *      conversation" sentinel once `hasMore` is false.
- *
- * Rendering decisions:
- *   - `groupConsecutiveBy` annotates messages with `isGroupStart` /
- *     `isGroupEnd` so the bubble only shows the avatar + sender name
- *     on the first message of a run.
- *   - Day separators are inserted between two messages whose calendar
- *     day differs in the viewer's local timezone (see helper).
- *   - The TypingIndicator is rendered AFTER all bubbles so it always
- *     sits at the very bottom of the visible feed.
- *
- * Read-receipt computation (own messages only):
- *   - In a 1:1 chat the recipient set has one entry, so the tick is
- *     binary: 1 tick when unread, 2 ticks once they read.
- *   - In a group, we count how many recipients (everyone except the
- *     sender) appear in `readBy`. Three buckets:
- *       0          → 'sent'    (single tick)
- *       0 < x < N  → 'partial' (single tick + tooltip "Read by x/N")
- *       x === N    → 'read'    (double tick)
- *
- * Privacy:
- *   - "read" / "partial" ticks are downgraded to "sent" whenever the
- *     viewer disabled their own `showReadReceipts` preference. The
- *     server suppresses the `conversation:readBy` broadcast in that
- *     case too — this check is defence-in-depth against any cached
- *     state.
- *   - Tooltip strings expose ONLY counts (e.g. "Read by 2/4"); the
- *     identity of who read or didn't is never surfaced. Listing
- *     readers in a group would broadcast individual reading habits.
- */
-
 const STICK_THRESHOLD = 100;
 
 const idOf = (value) => (value && value._id ? String(value._id) : String(value ?? ''));
 
-/**
- * Compute the `tickStatus` + `tickTooltip` for a message owned by the
- * viewer. Returns `{ status, tooltip }` so the bubble can pass them to
- * `MessageStatusTicks` directly. Caller is expected to skip this for
- * non-own messages — we still guard internally for safety.
- */
+// Group tooltips only show a count, never who read it, so reading habits stay private.
 const computeReadSummary = (
   message,
   currentUserId,
@@ -88,6 +38,7 @@ const computeReadSummary = (
   const meId = String(currentUserId || '');
   const senderId = idOf(message?.sender);
   if (!meId || senderId !== meId) return { status: 'sent', tooltip: '' };
+  // The server also stops readBy broadcasts when receipts are off.
   if (!prefShowReceipts) return { status: 'sent', tooltip: '' };
 
   const totalRecipients = recipientIdSet?.size ?? 0;
@@ -139,10 +90,7 @@ const MessagesList = forwardRef(
     const containerRef = useRef(null);
     const isFirstRenderRef = useRef(true);
     const previousLastIdRef = useRef(null);
-    /* `bubbleRefsMapRef` lets the search-in-chat highlighter scroll a
-     * specific message into view without forcing every bubble through
-     * a new prop just to expose its DOM node. We register/unregister
-     * via a callback ref attached to each `<li>` below. */
+    // message id -> <li> node, used to scroll search matches into view.
     const bubbleRefsMapRef = useRef(new Map());
 
     const setBubbleRef = useCallback((messageId, node) => {
@@ -155,9 +103,6 @@ const MessagesList = forwardRef(
       }
     }, []);
 
-    /* `pendingNewCount` is non-zero only when a new message arrived
-     * while the user was scrolled away from the bottom. Cleared the
-     * moment they tap the pill or scroll back near the bottom. */
     const [pendingNewCount, setPendingNewCount] = useState(0);
     const [isAtBottom, setIsAtBottom] = useState(true);
 
@@ -169,13 +114,10 @@ const MessagesList = forwardRef(
           await onLoadOlder();
           return;
         }
-        // Anchor the scroll position so prepending older messages
-        // doesn't jump the viewport. We measure the distance from the
-        // bottom (stable across content height changes) and restore it
-        // after the parent has appended the new page.
+        // Keep the distance from the bottom so prepending older messages does not jump the view.
         const distanceFromBottom = el.scrollHeight - el.scrollTop;
         await onLoadOlder();
-        // Wait one frame so the DOM has reflowed with the new rows.
+        // Wait a frame so the new rows are in the DOM before restoring.
         requestAnimationFrame(() => {
           if (!el.isConnected) return;
           el.scrollTop = el.scrollHeight - distanceFromBottom;
@@ -184,7 +126,6 @@ const MessagesList = forwardRef(
       { hasMore: hasMore && messages.length > 0, rootMargin: '120px' },
     );
 
-    /* ---------- Scroll-position tracking ---------- */
     const measureBottom = useCallback(() => {
       const el = containerRef.current;
       if (!el) return true;
@@ -200,11 +141,7 @@ const MessagesList = forwardRef(
       }
     }, [measureBottom, pendingNewCount]);
 
-    /* ---------- Auto-scroll on new messages ----------
-     * We diff the last message id between renders to detect "something
-     * changed at the tail". If the user is still glued to the bottom,
-     * we follow. Otherwise, we surface the "new messages" pill so the
-     * user can opt in instead of being yanked away from older content. */
+    // Follow new messages only if the user is near the bottom, otherwise show the pill.
     useEffect(() => {
       const el = containerRef.current;
       if (!el) return;
@@ -214,8 +151,6 @@ const MessagesList = forwardRef(
       const previousLastId = previousLastIdRef.current;
 
       if (isFirstRenderRef.current) {
-        // First mount with content: jump (no smooth scroll) so the user
-        // doesn't watch the timeline rewind from the top.
         if (lastId) {
           el.scrollTop = el.scrollHeight;
           previousLastIdRef.current = lastId;
@@ -224,8 +159,7 @@ const MessagesList = forwardRef(
         return;
       }
 
-      // Tail unchanged → nothing to do (older-page prepend handles its
-      // own anchoring inside `useInfiniteScroll`'s callback).
+      // Same last message means older history was prepended, which anchors itself above.
       if (lastId === previousLastId) return;
 
       const isOwn =
@@ -233,8 +167,6 @@ const MessagesList = forwardRef(
       const wasNearBottom = measureBottom();
 
       if (isOwn || wasNearBottom) {
-        // `requestAnimationFrame` so the freshly-appended bubble has
-        // contributed to scrollHeight before we issue the scroll.
         requestAnimationFrame(() => {
           if (!el.isConnected) return;
           el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
@@ -247,21 +179,12 @@ const MessagesList = forwardRef(
       previousLastIdRef.current = lastId;
     }, [messages, currentUserId, measureBottom]);
 
-    /* Reset tracking when the conversation switches. The parent (ChatPage)
-     * unmounts and remounts on `:conversationId` change, so this is mostly
-     * defensive — but cheap. */
     useEffect(() => {
       isFirstRenderRef.current = true;
       previousLastIdRef.current = null;
       setPendingNewCount(0);
     }, []);
 
-    /* ---------- Highlighted message scroll-into-view ----------
-     * Whenever the parent (ChatPage) flips `highlightMessageId` (e.g. via
-     * the search bar's Next/Prev), we ask the corresponding bubble to
-     * centre itself in the viewport. The bubble is responsible for the
-     * visual flash via its `isHighlighted` prop — this hook only owns
-     * the scroll, which keeps both responsibilities in one place. */
     useEffect(() => {
       if (!highlightMessageId) return;
       const node = bubbleRefsMapRef.current.get(String(highlightMessageId));
@@ -269,7 +192,6 @@ const MessagesList = forwardRef(
       node.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, [highlightMessageId]);
 
-    /* ---------- Imperative API for parent ---------- */
     useImperativeHandle(
       ref,
       () => ({
@@ -284,12 +206,8 @@ const MessagesList = forwardRef(
       [measureBottom],
     );
 
-    /* ---------- Derived view ---------- */
     const grouped = useMemo(() => groupConsecutiveBy(messages), [messages]);
 
-    /* Memoize the recipient id Set so a 200-message timeline doesn't
-     * rebuild it on every render. The Set is read-only — every consumer
-     * that mutates would clone first. */
     const recipientIdSet = useMemo(() => {
       const meId = String(currentUserId || '');
       const set = new Set();
@@ -308,7 +226,6 @@ const MessagesList = forwardRef(
       setPendingNewCount(0);
     }, []);
 
-    /* ---------- Render ---------- */
     if (isLoadingInitial && messages.length === 0) {
       return (
         <div className="flex min-h-0 flex-1 overflow-hidden bg-gray-50 dark:bg-gray-950">
@@ -331,12 +248,11 @@ const MessagesList = forwardRef(
               <EmptyState
                 icon={MessageCircle}
                 title="No messages yet"
-                description="Say hi to break the ice — your first message starts the conversation."
+                description="Send the first message to start the conversation."
                 className="border-transparent bg-transparent dark:border-transparent"
               />
             </div>
           ) : null}
-          {/* Top sentinel: visible only when there's older history left. */}
           {hasMore ? (
             <div ref={sentinelRef} className="flex h-8 items-center justify-center">
               {isLoadingOlder ? <Spinner size="sm" /> : null}
@@ -378,8 +294,6 @@ const MessagesList = forwardRef(
                   <li
                     ref={(node) => setBubbleRef(message._id, node)}
                     className={clsx(
-                      // Tighten spacing inside a same-sender run so the
-                      // bubbles read as a visual group.
                       isGroupStart ? 'mt-1.5' : 'mt-0.5',
                       isGroupEnd ? 'mb-1' : 'mb-0',
                       'scroll-mt-4 scroll-mb-4',
@@ -422,7 +336,7 @@ const MessagesList = forwardRef(
           <button
             type="button"
             onClick={handlePillClick}
-            className="absolute right-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-brand-600 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition-transform hover:scale-105 dark:bg-brand-500"
+            className="absolute right-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-brand-600 px-3 py-1.5 text-xs font-medium text-white shadow-md transition-colors hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-400"
           >
             <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
             <span>

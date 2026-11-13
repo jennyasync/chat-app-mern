@@ -2,40 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, X } from 'lucide-react';
 
-/**
- * ImageLightbox — full-screen click-to-zoom viewer for image messages.
- *
- * Why a dedicated portal instead of reusing the generic `Modal`:
- *   The generic modal carries a header, padding, scroll container, and
- *   a max-width constraint that fight an "inspect a photo" UX. The
- *   lightbox needs the photo itself to be the focal point: edge-to-edge
- *   black backdrop, the only chrome being a close button and an
- *   optional download link.
- *
- * SECURITY:
- *   - The `src` is rendered into an `<img>` element — never injected as
- *     HTML. React auto-escapes the attribute value, so even if an
- *     attacker controlled the URL string they could not break out into
- *     attribute or tag context.
- *   - The optional download link uses the SAME pre-vetted URL the
- *     bubble already trusted. We do NOT parse the URL ourselves and we
- *     do NOT extract any query / fragment to construct other links —
- *     keeps this component immune to URL-parsing edge cases.
- *   - `referrerPolicy="no-referrer"` so opening the lightbox doesn't
- *     leak the chat origin to the image host.
- *
- * Accessibility:
- *   - `role="dialog"` + `aria-modal="true"` so assistive tech treats
- *     the surrounding chat as inert while the lightbox is open.
- *   - Escape closes; backdrop click closes; explicit close button has
- *     a visible hover/focus ring for keyboard users.
- */
-
 const ImageLightbox = ({ open, src, alt = '', onClose, downloadHref }) => {
-  /* Lock body scroll while open and listen for the Escape key. We
-   * deliberately do NOT trap focus here — the only interactive elements
-   * are the close + download buttons, both reachable from the natural
-   * tab order on most browsers. */
   useEffect(() => {
     if (!open) return undefined;
 
@@ -70,7 +37,6 @@ const ImageLightbox = ({ open, src, alt = '', onClose, downloadHref }) => {
       onMouseDown={handleBackdropClick}
       className="fixed inset-0 z-60 flex items-center justify-center bg-black/90 px-4 py-6"
     >
-      {/* Top-right action chrome */}
       <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
         {downloadHref ? (
           <a

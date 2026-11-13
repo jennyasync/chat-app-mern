@@ -16,7 +16,6 @@ import {
   MoreHorizontal,
   Pencil,
   RefreshCw,
-  Smile,
   Trash2,
 } from 'lucide-react';
 
@@ -29,58 +28,7 @@ import { useOnClickOutside } from '../../hooks/useOnClickOutside.js';
 import { linkifyText } from '../../utils/helpers.js';
 import { formatClockTime } from '../../utils/formatDate.js';
 
-/**
- * MessageBubble — render a single message row inside the timeline.
- *
- * Owns three interactive surfaces the parent does NOT touch:
- *   1. The hover / long-press action menu (Reply, Copy, React, Edit,
- *      Delete) and its mini emoji bar for quick reactions.
- *   2. The inline edit affordance (Save / Cancel within a 15-minute
- *      window — the server is the authority, this is UX).
- *   3. The "Delete for me / for everyone" confirmation modal, with
- *      eligibility for "for everyone" gated by sender + 5-min window OR
- *      admin role (the server re-checks; we hide the option as UX).
- *
- * Inputs the parent (MessagesList) computes:
- *   - `isOwn`          — message is from the viewer (right-aligned).
- *   - `showAvatar`     — render avatar slot (suppressed on grouped
- *                        continuation bubbles).
- *   - `showName`       — render the sender's display name above the
- *                        bubble (groups only, only on the first bubble
- *                        of a same-sender run).
- *   - `tickStatus`     — 'pending' | 'sent' | 'partial' | 'read' |
- *                        'failed', already gated by the viewer's
- *                        `showReadReceipts` preference.
- *   - `tickTooltip`    — optional string for partial reads
- *                        ("Read by 2/4"); never lists user names.
- *   - `currentUserId`  — viewer id; used to compute reaction-toggle
- *                        affordances and "is this MY reaction?" styles.
- *   - `isAdmin`        — viewer has the `admin` role (delete-for-everyone
- *                        is always permitted; we re-check on the server).
- *   - `isGroup`        — surface sender display names + read tooltip.
- *   - Action callbacks — `onReply`, `onEdit`, `onDelete`, `onReact`,
- *                        `onRetry`. Each returns a Promise so the bubble
- *                        can show its in-flight state without owning the
- *                        message cache.
- *
- * SECURITY:
- *   - Body text is rendered via React JSX (auto-escaped). URLs are
- *     tokenised by `linkifyText` which only emits `<a>` for `http(s)://`
- *     schemes; everything else stays plain text — no `javascript:` /
- *     `data:` / `file:` / `vbscript:` link can ever be produced.
- *   - The image click-to-zoom uses a fixed sandbox lightbox component:
- *     no link extraction from the URL, the same vetted `imageUrl` is
- *     reused as the `<img src>`.
- *   - `referrerPolicy="no-referrer"` and `loading="lazy"` on every
- *     image so the recipient's session doesn't leak referers and
- *     off-screen photos don't pre-load.
- *   - Edit / delete eligibility is shown by the menu purely as UX. The
- *     server re-validates on every mutation (sender + window for edit,
- *     sender + window OR admin for delete-for-everyone).
- *   - Tooltip for partial group reads shows ONLY counts; we never list
- *     which users have or haven't read (privacy).
- */
-
+// Edit/delete windows here only hide menu options; the server re-checks every mutation.
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const DELETE_WINDOW_MS = 5 * 60 * 1000;
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -88,10 +36,7 @@ const LONG_PRESS_MS = 450;
 
 const idOf = (value) => (value && value._id ? String(value._id) : String(value ?? ''));
 
-/* React-friendly key for linkified tokens. We never use the token text
- * as a key by itself because two identical URLs in one message would
- * produce duplicate keys; index suffix solves that without losing the
- * stability React wants. */
+// linkifyText only emits http(s) links, so javascript: or data: URLs stay plain text.
 const renderLinkified = (text) =>
   linkifyText(text).map((token, index) => {
     if (token.type === 'link') {
@@ -131,12 +76,6 @@ const DeletedBubble = ({ isOwn }) => (
   </span>
 );
 
-/* ------------------------------------------------------------------ *
- * Reply quote — compact preview surfaced above the bubble body when   *
- * the message has a populated `replyTo`. Clicking the quote does not  *
- * scroll-to-original yet (Step 30 territory); we keep it presentational *
- * so adding the navigation later is a one-line callback wire.          *
- * ------------------------------------------------------------------ */
 const ReplyQuote = ({ replyTo, isOwn }) => {
   const senderName =
     replyTo?.sender?.displayName || replyTo?.sender?.username || 'Unknown';
@@ -181,11 +120,7 @@ const ReplyQuote = ({ replyTo, isOwn }) => {
   );
 };
 
-/* ------------------------------------------------------------------ *
- * Reaction chips — emoji buckets aggregated from `message.reactions`. *
- * Click toggles the viewer's reaction (server enforces the one-per-   *
- * user rule, so re-clicking the same emoji removes it).               *
- * ------------------------------------------------------------------ */
+// Re-clicking your own emoji removes it; the server enforces one reaction per user.
 const ReactionChips = ({ reactions, currentUserId, onToggle, disabled }) => {
   const buckets = useMemo(() => {
     if (!Array.isArray(reactions) || reactions.length === 0) return [];
@@ -238,12 +173,6 @@ const ReactionChips = ({ reactions, currentUserId, onToggle, disabled }) => {
   );
 };
 
-/* ------------------------------------------------------------------ *
- * Action menu popover — Reply / Copy / React / Edit / Delete.         *
- * Visibility is controlled by the bubble's `menuOpen` state. We mount  *
- * unconditionally so a hover-to-reveal MoreHorizontal button + a       *
- * long-press both flip the same state.                                 *
- * ------------------------------------------------------------------ */
 const BubbleMenu = ({
   open,
   onClose,
@@ -297,12 +226,9 @@ const BubbleMenu = ({
       aria-label="Message actions"
       className={clsx(
         'absolute z-20 w-48 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900',
-        // Anchor under the trigger; flip side based on bubble alignment.
         isOwn ? 'right-0 top-full mt-1' : 'left-0 top-full mt-1',
       )}
     >
-      {/* Quick-react row. The chosen emoji reacts immediately (toggle) — */}
-      {/* opening the full picker would be heavy for a 6-emoji shortcut. */}
       <div className="flex items-center justify-between gap-1 border-b border-gray-100 px-2 py-1.5 dark:border-gray-800">
         {QUICK_REACTIONS.map((emoji) => (
           <button
@@ -313,7 +239,7 @@ const BubbleMenu = ({
               onClose?.();
             }}
             aria-label={`React with ${emoji}`}
-            className="flex h-7 w-7 items-center justify-center rounded-full text-base leading-none transition-transform hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-base leading-none transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
           >
             {emoji}
           </button>
@@ -334,17 +260,11 @@ const BubbleMenu = ({
   );
 };
 
-/* ------------------------------------------------------------------ *
- * Inline editor — replaces the bubble body with a textarea + buttons. *
- * Enter saves, Shift+Enter inserts a newline, Escape cancels.         *
- * ------------------------------------------------------------------ */
 const InlineEditor = ({ initialText, isOwn, isSubmitting, onSave, onCancel }) => {
   const [draft, setDraft] = useState(initialText);
   const textareaRef = useRef(null);
 
-  /* Auto-size + focus the textarea on mount. `useLayoutEffect` so the
-   * size lands before paint and the caret jumps to the end without a
-   * visible flash. */
+  // Layout effect so the resize and caret move happen before paint, with no flash.
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -440,9 +360,6 @@ const InlineEditor = ({ initialText, isOwn, isSubmitting, onSave, onCancel }) =>
   );
 };
 
-/* ------------------------------------------------------------------ *
- * Bubble proper                                                       *
- * ------------------------------------------------------------------ */
 const MessageBubble = ({
   message,
   isOwn = false,
@@ -478,7 +395,6 @@ const MessageBubble = ({
   const [isRetrying, setIsRetrying] = useState(false);
   const [isReacting, setIsReacting] = useState(false);
 
-  /* ---------- Long-press (mobile) ---------- */
   const longPressTimerRef = useRef(null);
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimerRef.current) {
@@ -487,10 +403,7 @@ const MessageBubble = ({
     }
   }, []);
 
-  /* Cancel an in-flight long-press timer if the bubble unmounts mid-press
-   * (route change, conversation switch, etc.). Otherwise the timeout
-   * could fire against a stale closure and try to open the menu on an
-   * unmounted component. */
+  // Clear a pending long-press on unmount so it can't open the menu afterwards.
   useEffect(() => clearLongPressTimer, [clearLongPressTimer]);
 
   const handleTouchStart = useCallback(() => {
@@ -505,7 +418,6 @@ const MessageBubble = ({
     clearLongPressTimer();
   }, [clearLongPressTimer]);
 
-  /* ---------- Eligibility ---------- */
   const createdAtMs = useMemo(() => {
     const t = message?.createdAt ? new Date(message.createdAt).getTime() : NaN;
     return Number.isNaN(t) ? null : t;
@@ -521,9 +433,7 @@ const MessageBubble = ({
     return Date.now() - createdAtMs <= DELETE_WINDOW_MS;
   }, [createdAtMs]);
 
-  /* `canEdit` mirrors the server check: own + text type + within window
-   * + persisted (no `_pending` / `_failed`) + not already deleted. The
-   * server is the authority; the UI just hides ineligible options. */
+  // Mirrors the server's edit check.
   const canEdit =
     isOwn &&
     !isDeleted &&
@@ -545,7 +455,6 @@ const MessageBubble = ({
 
   const showActionButton = !isSystem && !isDeleted && !isEditing;
 
-  /* ---------- Action wiring ---------- */
   const handleCopy = useCallback(async () => {
     if (!message?.text) return;
     try {
@@ -553,10 +462,7 @@ const MessageBubble = ({
         await navigator.clipboard.writeText(message.text);
         toast.success('Message copied');
       } else {
-        // Fallback for legacy browsers (and for non-secure contexts where
-        // the Clipboard API is gated). A hidden textarea + execCommand
-        // is intentionally minimal — we only enter this branch in the
-        // wild on http://localhost or pre-2019 browsers.
+        // The Clipboard API is missing on old browsers and non-secure (http) origins.
         const helper = document.createElement('textarea');
         helper.value = message.text;
         helper.setAttribute('readonly', '');
@@ -601,8 +507,7 @@ const MessageBubble = ({
         await onEdit(message, trimmed);
         setIsEditing(false);
       } catch {
-        // Toast emitted by parent — keep the editor open so the user
-        // can retry without retyping.
+        // Parent shows the toast; keep the editor open so the user can retry.
       } finally {
         setIsSubmittingEdit(false);
       }
@@ -656,7 +561,6 @@ const MessageBubble = ({
     }
   }, [isFailed, isRetrying, message, onRetry]);
 
-  /* ---------- Body ---------- */
   const bodyContent = useMemo(() => {
     if (isDeleted) return <DeletedBubble isOwn={isOwn} />;
 
@@ -717,7 +621,6 @@ const MessageBubble = ({
     return <SystemBubble message={message} />;
   }
 
-  /* ---------- Render ---------- */
   const showReplyQuote =
     !isDeleted && message?.replyTo && typeof message.replyTo === 'object';
 
@@ -742,7 +645,7 @@ const MessageBubble = ({
 
       <div
         className={clsx(
-          'relative flex max-w-[75%] flex-col gap-0.5 rounded-lg transition-all duration-300',
+          'relative flex max-w-[75%] flex-col gap-0.5 rounded-lg transition-[background-color,box-shadow] duration-300',
           isOwn ? 'items-end' : 'items-start',
           isHighlighted &&
             'bg-yellow-100/70 ring-2 ring-yellow-400 ring-offset-2 ring-offset-gray-50 dark:bg-yellow-500/10 dark:ring-yellow-300/70 dark:ring-offset-gray-950',
@@ -754,8 +657,6 @@ const MessageBubble = ({
           </span>
         ) : null}
 
-        {/* Bubble + inline action button row. Position the trigger as a */}
-        {/* sibling so the menu popover can anchor below the bubble.    */}
         <div className={clsx('relative flex items-start gap-1', isOwn && 'flex-row-reverse')}>
           <div className="flex max-w-full flex-col">
             {showReplyQuote ? (
@@ -786,12 +687,7 @@ const MessageBubble = ({
                 className={clsx(
                   'mt-1 flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-opacity',
                   'hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200',
-                  // Always discoverable: a faint ghost on coarse / no-
-                  // hover devices (so mobile users don't have to guess
-                  // the long-press affordance), promoted to full
-                  // opacity on hover, focus-visible, or while open.
-                  // The faint state is suppressed on hover-capable
-                  // pointers so desktop bubbles stay clean by default.
+                  // Faintly visible on touch devices (no hover), hidden until hover on desktop.
                   menuOpen
                     ? 'opacity-100'
                     : 'opacity-40 hover:opacity-100 focus-visible:opacity-100 group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100 hover:[@media(hover:hover)]:opacity-100 [@media(hover:hover)]:opacity-0',
@@ -818,7 +714,6 @@ const MessageBubble = ({
           ) : null}
         </div>
 
-        {/* Reactions row */}
         {!isDeleted ? (
           <ReactionChips
             reactions={message?.reactions}
@@ -828,7 +723,6 @@ const MessageBubble = ({
           />
         ) : null}
 
-        {/* Footer row: time + edited + ticks (or retry on failure) */}
         <span
           className={clsx(
             'flex items-center gap-1 px-1 text-[10px] tabular-nums',
@@ -867,8 +761,6 @@ const MessageBubble = ({
         </span>
       </div>
 
-      {/* Click-to-zoom lightbox, mounted lazily so closed bubbles don't */}
-      {/* contribute a portal node to the DOM tree.                      */}
       {isImage ? (
         <ImageLightbox
           open={lightboxOpen}
@@ -879,7 +771,6 @@ const MessageBubble = ({
         />
       ) : null}
 
-      {/* Delete confirmation modal */}
       <Modal
         open={confirmDeleteOpen}
         onClose={() => (deletingScope ? null : setConfirmDeleteOpen(false))}

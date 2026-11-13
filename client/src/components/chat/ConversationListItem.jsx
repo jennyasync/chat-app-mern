@@ -5,28 +5,8 @@ import { BellOff, Image as ImageIcon, Users } from 'lucide-react';
 
 import Avatar from '../common/Avatar.jsx';
 import PresenceDot from './PresenceDot.jsx';
-import UnreadBadge from './UnreadBadge.jsx';
+import Badge from '../common/Badge.jsx';
 import { formatRelativeTime } from '../../utils/formatRelativeTime.js';
-
-/**
- * ConversationListItem — a single row inside the sidebar list.
- *
- * The component is intentionally presentational: it derives nothing
- * from contexts and does not call APIs. The parent (`Sidebar`) hands
- * down everything it needs to render — including the resolved "other
- * participant" for direct chats — so this row stays trivially testable
- * and `React.memo` works without bespoke comparators.
- *
- * Rendering rules:
- *  - Direct conversations show the other participant's avatar +
- *    presence dot. Group conversations show the group avatar + a tiny
- *    multi-user glyph in place of the dot.
- *  - The preview line falls back to "Photo" / "New conversation" /
- *    italicised system snippet so we never render an empty row.
- *  - The active row gets a brand-tinted background; unread rows get
- *    bolder text. The two states are independent — an unread row that
- *    is also active stays bold AND highlighted.
- */
 
 const buildPreview = (conversation) => {
   const last = conversation?.lastMessage;
@@ -139,7 +119,7 @@ const ConversationListItem = ({
                 aria-label="Muted"
               />
             ) : null}
-            {hasUnread ? <UnreadBadge count={unreadCount} /> : null}
+            {hasUnread ? <Badge count={unreadCount} /> : null}
           </span>
         </span>
       </span>

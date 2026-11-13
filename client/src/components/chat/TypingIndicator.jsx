@@ -2,29 +2,6 @@ import clsx from 'clsx';
 
 import Avatar from '../common/Avatar.jsx';
 
-/**
- * TypingIndicator — animated three-dot bubble shown at the BOTTOM of the
- * message list while one or more OTHER participants are typing.
- *
- * Inputs:
- *   - `users`: array of `{ _id, displayName, username, avatarUrl }`
- *     (already filtered by the parent to exclude the current user).
- *
- * Display rules:
- *   - 1 typer  → small avatar + "<name> is typing…"
- *   - 2 typers → "Alice and Bob are typing…"
- *   - 3+       → "Alice, Bob and 2 others are typing…"
- *
- * The dots run via inline `animationDelay` so we don't need a custom
- * Tailwind keyframe — `animate-bounce` is built-in. Reduced-motion
- * users still see the bubble; the global CSS rule in `index.css`
- * neutralises the bounce duration to ~0ms.
- *
- * Accessibility: the wrapping `<div>` carries `role="status"` +
- * `aria-live="polite"` so screen readers announce typing state once,
- * without interrupting whatever the user is reading.
- */
-
 const formatTypers = (users) => {
   if (!Array.isArray(users) || users.length === 0) return '';
   const names = users

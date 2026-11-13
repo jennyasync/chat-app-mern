@@ -8,34 +8,6 @@ import * as userService from '../../api/user.service.js';
 import Avatar from '../common/Avatar.jsx';
 import PresenceDot from './PresenceDot.jsx';
 
-/**
- * UserSearchInput — debounced `/users/search` input with a result list.
- *
- * Designed as the single search primitive shared by both modals in
- * Step 26 (`NewChatModal`, `NewGroupModal`):
- *   - In single-select mode (`mode="single"`) clicking a row simply
- *     fires `onSelect(user)` and the parent decides what to do
- *     (typically: create a direct conversation and close).
- *   - In multi-select mode (`mode="multi"`) the parent owns the
- *     selection state via `selectedIds` and `onToggle`. Selected rows
- *     show a check, and the parent can also disable rows (e.g. when
- *     the group cap has been reached) via `disabledIds`.
- *
- * Why state lives partly inside this component (`query`, results) and
- * partly outside (`selectedIds`, `excludeIds`):
- *   The query lifecycle is purely a UI concern — it should reset
- *   when the modal closes. Selection, however, is the *output* of
- *   the modal and must survive across query changes (you can search
- *   for "alice", select her, then search for "bob" and select him).
- *   Splitting ownership along that axis keeps the parent contract
- *   minimal without making this component a black box.
- *
- * `excludeIds` is applied client-side after the network round-trip.
- * The server's `/users/search` already excludes blocked accounts
- * (per Step 9), so this filter is for UX hints only — typically
- * "don't show users who are already in this group".
- */
-
 const idOf = (value) => (value && value._id ? String(value._id) : String(value ?? ''));
 
 const UserSearchInput = ({
@@ -46,7 +18,7 @@ const UserSearchInput = ({
   selectedIds,
   disabledIds,
   excludeIds,
-  placeholder = 'Search by name or @username…',
+  placeholder = 'Search users',
   autoFocus = false,
   limit = 8,
   emptyHint = 'Try a different name or @username.',
@@ -114,6 +86,7 @@ const UserSearchInput = ({
     };
   }, [debouncedQuery, limit]);
 
+  // Blocked users are already filtered by the server; this only hides people like yourself or current members.
   const visibleResults = useMemo(
     () => results.filter((user) => !excludeSet.has(idOf(user))),
     [results, excludeSet],

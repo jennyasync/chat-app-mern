@@ -1,39 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef } from 'react';
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 
-/**
- * SearchInChatBar — slide-in panel that lets the viewer scan the
- * currently-loaded message timeline for a substring.
- *
- * Scope (intentional):
- *   - Only searches the messages already in memory (the same window
- *     `MessagesList` renders). We do NOT round-trip to the server here:
- *     full-text search across a conversation is a separate feature
- *     (paginated `searchMessages` endpoint) and would require its own
- *     UX for previews, jump-to-context loading older pages, etc.
- *     Limiting scope keeps the affordance honest — what the user sees
- *     in the bar is exactly what's on screen.
- *   - System / deleted bubbles are skipped because their displayed text
- *     ("Conversation updated" / "This message was deleted") would
- *     produce noisy false positives.
- *
- * Keyboard model:
- *   - Esc                 → close.
- *   - Enter               → jump to NEXT match (wraps).
- *   - Shift+Enter         → jump to PREVIOUS match (wraps).
- *   - The input gets autoFocus when the bar opens; we restore focus to
- *     it on every reopen so a closed-and-reopened search picks up where
- *     it left off without needing a click.
- *
- * Privacy / SECURITY:
- *   - The query never leaves the browser; nothing is logged or
- *     transmitted. This is local DOM-equivalent text scanning.
- *   - We compare against `message.text` only — image URLs and reply
- *     quotes are NOT searched, both to keep the results predictable
- *     and to avoid accidentally exposing a Cloudinary path the bubble
- *     itself never displayed.
- */
-
 const norm = (value) => (typeof value === 'string' ? value.toLowerCase() : '');
 
 const SearchInChatBar = ({
@@ -49,9 +16,6 @@ const SearchInChatBar = ({
   const inputId = useId();
   const inputRef = useRef(null);
 
-  /* Re-focus the input whenever the bar (re)opens. Otherwise the user
-   * has to click into the field after every toggle, which makes the
-   * keyboard shortcut feel half-broken. */
   useEffect(() => {
     if (!open) return;
     const id = window.requestAnimationFrame(() => {
@@ -107,7 +71,7 @@ const SearchInChatBar = ({
           value={query}
           onChange={(event) => onQueryChange?.(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Search messages on screen…"
+          placeholder="Search messages"
           className="w-full rounded-md border border-gray-200 bg-gray-50 py-1.5 pl-8 pr-20 text-sm text-gray-900 placeholder:text-gray-400 transition-colors focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:bg-gray-900"
         />
         <span
@@ -153,17 +117,13 @@ const SearchInChatBar = ({
   );
 };
 
-/**
- * Build the ordered list of message ids that match `query` from the
- * given timeline. Exported so `ChatPage` can recompute matches without
- * depending on the bar's internals (the bar stays purely presentational).
- */
 export const collectMatches = (messages, query) => {
   const needle = norm(query).trim();
   if (!needle || !Array.isArray(messages)) return [];
   const out = [];
   for (const message of messages) {
     if (!message || !message._id) continue;
+    // Skip system and deleted rows, their placeholder text would give false matches.
     if (message.type === 'system') continue;
     if (message.deletedFor === 'everyone') continue;
     const haystack = norm(message.text);

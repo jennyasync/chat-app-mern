@@ -8,28 +8,6 @@ import * as conversationService from '../../api/conversation.service.js';
 import Modal from '../common/Modal.jsx';
 import UserSearchInput from '../chat/UserSearchInput.jsx';
 
-/**
- * NewChatModal — one-shot picker that opens (or creates) a direct
- * conversation with a single other user.
- *
- * Flow:
- *   1. User searches via the shared `UserSearchInput`.
- *   2. Click on a row → `POST /conversations/direct`.
- *   3. The server is idempotent: if the pair already has a direct
- *      conversation it returns the existing one. Either way the
- *      sidebar `upsertConversation` puts the row at the top of the
- *      list and we navigate to it.
- *
- * Why we filter the *current user* out client-side: the server-side
- * search endpoint already excludes the caller (Step 8), but doing one
- * more pass with `excludeIds=[currentUserId]` keeps the modal correct
- * even if a future change relaxes that server filter.
- *
- * SECURITY: every blocking, validation and authorization decision
- * happens server-side. The modal never trusts a user id past
- * displaying it; the create call carries only the id and the server
- * re-resolves the participant before opening the room.
- */
 const NewChatModal = ({ open, onClose }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -45,6 +23,7 @@ const NewChatModal = ({ open, onClose }) => {
 
       setCreatingId(targetId);
       try {
+        // Returns the existing conversation if these two users already have one.
         const result = await conversationService.createDirect(targetId);
         const conversation = result?.data ?? null;
         if (!conversation?._id) {

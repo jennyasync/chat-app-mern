@@ -6,31 +6,6 @@ import { useNotifications } from '../../contexts/NotificationContext.jsx';
 import { usePreferences } from '../../contexts/PreferencesContext.jsx';
 import { useLocalStorage } from '../../hooks/useLocalStorage.js';
 
-/**
- * NotificationPermissionBanner — first-prompt UX above the chat layout.
- *
- * The Web Notifications API gives every origin exactly one chance to
- * call `Notification.requestPermission()` from a user gesture before
- * Chrome/Edge silently downgrade subsequent calls and Safari just
- * denies them outright. A blanket call on app load would burn that
- * slot and deny users notifications forever — so we surface the prompt
- * as a contextual banner that the user explicitly opts into.
- *
- * Visibility rules (all must be true):
- *   1. The user is authenticated (no point asking guests).
- *   2. The Notifications API is supported AND permission is `default`.
- *   3. The user hasn't dismissed the banner in this browser already.
- *   4. The user hasn't disabled the `notifications.browser` preference
- *      (respect their stated intent).
- *   5. Master mute is off.
- *
- * Dismissal is keyed per-user so logging into a second account on the
- * same browser still gets a fair chance to opt in.
- *
- * SECURITY: `requestPermission()` is always invoked from the click
- * handler — never automatically on mount.
- */
-
 const STORAGE_KEY_PREFIX = 'notificationBannerDismissed:';
 
 const NotificationPermissionBanner = () => {
@@ -54,11 +29,12 @@ const NotificationPermissionBanner = () => {
 
   if (!shouldShow) return null;
 
+  // Browsers block or ignore permission prompts that are not triggered by a click.
   const handleEnable = async () => {
     const result = await requestPermission();
     if (result === 'granted') {
       setDismissed(true);
-      toast.success('Browser notifications enabled.');
+      toast.success('Browser notifications enabled');
     } else if (result === 'denied') {
       setDismissed(true);
       toast.error(
@@ -77,7 +53,7 @@ const NotificationPermissionBanner = () => {
     >
       <Bell className="h-4 w-4 shrink-0" aria-hidden="true" />
       <p className="min-w-0 flex-1 truncate sm:flex-none">
-        Enable browser notifications to never miss a message.
+        Turn on browser notifications for new messages.
       </p>
       <div className="flex shrink-0 items-center gap-2">
         <button
