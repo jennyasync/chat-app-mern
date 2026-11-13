@@ -1,26 +1,6 @@
 import { useId } from 'react';
 import clsx from 'clsx';
 
-/**
- * ToggleSwitch — accessible on/off switch used across the Settings tree.
- *
- * Why a custom switch instead of a native `<input type="checkbox">`:
- *   - The visual affordance for a "preference" reads better as a
- *     sliding pill than a checkbox in a settings list.
- *   - We still expose the underlying control as `role="switch"` with
- *     `aria-checked` so assistive tech announces it correctly.
- *
- * Behaviour notes:
- *   - The control is rendered as a `<button>` so it participates in the
- *     normal Tab order and Space/Enter activation without us
- *     hand-rolling key handlers.
- *   - `disabled` short-circuits both the click handler and the visible
- *     state so callers can render an in-flight save without losing
- *     keyboard focus on the row.
- *   - When a `label` is provided we render it next to the switch and
- *     wire up `aria-labelledby` — the same `<label htmlFor>` pattern
- *     a native checkbox would give us, without the markup gymnastics.
- */
 const ToggleSwitch = ({
   checked = false,
   onChange,

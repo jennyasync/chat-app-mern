@@ -5,23 +5,6 @@ import Avatar from '../common/Avatar.jsx';
 import Badge from '../common/Badge.jsx';
 import { formatRelativeTime } from '../../utils/formatRelativeTime.js';
 
-/**
- * ReportRow — single row in the moderator queue.
- *
- * Why a stand-alone component:
- *   - The reports table is shown in two places: the dashboard's
- *     "Recent reports" panel and the dedicated `/admin/reports` page.
- *     Centralising the row keeps the visual / a11y treatment (status
- *     badge colour, target-type icon, reporter avatar) identical
- *     across both surfaces.
- *
- * The row is a `<tr>` so the parent owns the `<table>` semantics. We
- * deliberately do NOT wrap the entire row in a `<button>` (that would
- * break table semantics for screen readers); instead the parent
- * registers a click handler on the row and we expose `onSelect` here
- * for clean ergonomics.
- */
-
 const STATUS_VARIANT = {
   pending: 'warning',
   reviewed: 'brand',
@@ -62,6 +45,7 @@ const ReportRow = ({ report, onSelect, compact = false }) => {
     }
   };
 
+  // A <button> can't wrap a <tr>, so the row itself is made focusable and clickable
   return (
     <tr
       role="button"

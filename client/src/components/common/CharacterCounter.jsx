@@ -1,37 +1,6 @@
 import { useId } from 'react';
 import clsx from 'clsx';
 
-/**
- * CharacterCounter — `current/max` indicator for capped inputs (Bio,
- * Group name, Report details, Review note, …).
- *
- * Why a dedicated component:
- *   - Every textarea / input with a server-enforced length limit was
- *     re-implementing the same `current/max` span with bespoke colour
- *     thresholds. Centralising the logic keeps the visual language
- *     consistent and makes a future copy/styling change a one-file edit.
- *
- * Behaviour:
- *   - Renders nothing if `max` is missing or non-positive — defensive
- *     so callers can pipe a constant straight from `utils/constants.js`
- *     without guarding.
- *   - Threshold tone:
- *       · 0 to 80%  → muted gray
- *       · 80% to <100% → amber (warning)
- *       · ≥ 100%   → red (over-cap; the text is also clamped via
- *                    `slice(0, max)` at the call site, but we still
- *                    surface the state in case a future caller forgets).
- *
- * Accessibility:
- *   - Wired via `aria-describedby`: pass the returned `id` (or our
- *     generated one if `id` is omitted) to the input's
- *     `aria-describedby` so screen readers announce the remaining
- *     budget. We also include a hidden `<span>` with a verbose
- *     "X of Y characters" string so the announcement is meaningful
- *     in isolation.
- *   - `aria-live="polite"` so the count is re-announced as the user
- *     types, but never interrupts the user mid-word.
- */
 const CharacterCounter = ({
   current = 0,
   max,

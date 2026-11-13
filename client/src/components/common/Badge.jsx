@@ -1,13 +1,5 @@
 import clsx from 'clsx';
 
-/**
- * Badge — small count/label pill.
- *
- * Used by the navbar bell (unread notifications) and the conversation
- * list (unread per chat). Counts above `max` collapse to "max+" so a
- * runaway counter doesn't break the layout.
- */
-
 const VARIANTS = {
   brand: 'bg-brand-600 text-white',
   danger: 'bg-red-600 text-white',

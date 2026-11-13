@@ -1,33 +1,6 @@
 import { cloneElement, useId, useState } from 'react';
 import clsx from 'clsx';
 
-/**
- * Tooltip — accessible, lightweight tooltip wrapper.
- *
- * Why a hand-rolled component instead of pulling in @radix-ui/popper:
- *   The chat surface only needs static positioning (above/below) for
- *   short helper strings. A 30 KB positioning library would dwarf the
- *   actual visual element. We keep the component dependency-free and
- *   layer it on top of any focusable child.
- *
- * Accessibility contract:
- *   - The tooltip body is rendered as `role="tooltip"` and connected
- *     to the trigger via `aria-describedby` so screen readers announce
- *     it as supplemental help, not as a separate region.
- *   - The trigger child must be focusable (button, link, input). We
- *     forward the `aria-describedby` so consumers don't need to wire
- *     it manually. Hover AND focus open the tooltip — keyboard-only
- *     users get the same affordance as mouse users.
- *   - Pressing `Escape` while the trigger has focus dismisses the
- *     tooltip without losing focus.
- *
- * Behaviour:
- *   - The tooltip body is positioned with absolute layout in a
- *     `relative` wrapper. Consumers that need a portal (e.g. inside
- *     overflow-hidden lists) should fall back to `title=""` for now.
- *   - Animations honour `prefers-reduced-motion` via the global CSS
- *     hook in `index.css`.
- */
 const POSITION_CLASSES = {
   top: 'bottom-full left-1/2 mb-2 -translate-x-1/2',
   bottom: 'top-full left-1/2 mt-2 -translate-x-1/2',
@@ -73,8 +46,6 @@ const Tooltip = ({
     if (event.key === 'Escape') handleClose();
   };
 
-  /* Forward aria-describedby + the open/close handlers onto the single
-   * focusable child so callers wrap their existing element directly. */
   const trigger = cloneElement(children, {
     'aria-describedby': open ? tooltipId : children.props['aria-describedby'],
     onMouseEnter: (event) => {

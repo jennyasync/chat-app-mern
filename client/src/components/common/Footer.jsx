@@ -1,20 +1,4 @@
-/**
- * Footer — global signature strip rendered at the bottom of every
- * non-chat surface (auth flow + the generic authenticated shell).
- *
- * Kept dependency-free and theme-aware so it can sit underneath any
- * page without leaking layout (no fixed positioning, no z-index
- * gymnastics) and without forcing colour decisions on the host.
- *
- * The "Created by …" links are external, so we always pair
- * `target="_blank"` with `rel="noopener noreferrer"` to prevent the
- * destination from gaining a `window.opener` handle and to opt out
- * of the referrer header.
- *
- * The GitHub mark is inlined as SVG because Lucide v1 removed all
- * brand icons (trademark/licensing concerns); pulling in another
- * icon library just for one glyph would be wasteful.
- */
+// lucide-react dropped brand icons, so the GitHub mark is inlined.
 const GithubIcon = (props) => (
   <svg
     viewBox="0 0 24 24"

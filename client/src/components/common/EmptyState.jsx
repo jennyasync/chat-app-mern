@@ -1,27 +1,6 @@
 import clsx from 'clsx';
 import { Inbox } from 'lucide-react';
 
-/**
- * EmptyState — generic "nothing to show here" placeholder.
- *
- * Used by lists (Blocked Users, conversations sidebar, admin tables,
- * notifications page) when the collection is empty after a successful
- * fetch. Distinct from `PagePlaceholder`, which marks a not-yet-built
- * route.
- *
- * `action` is intentionally polymorphic so callers can pick whichever
- * shape fits their context:
- *   - **Render prop / node**: `action={<Link to="...">Go</Link>}` —
- *     full control over the rendered button when the page already has
- *     its own CTA component.
- *   - **Callback + `actionLabel`**: `action={openComposer}` plus a
- *     `actionLabel="Start a chat"` — convenience shortcut that gets a
- *     consistent brand-styled button so the call site stays terse.
- * Why both: forcing every consumer to import a Button just to get the
- * "right" colour led to copy-pasted variants drifting apart. The
- * callback form is the recommended path going forward; the node form
- * stays for the few existing call sites that pass a custom action.
- */
 const EmptyState = ({
   icon: Icon = Inbox,
   title,

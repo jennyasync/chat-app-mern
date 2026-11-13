@@ -17,32 +17,6 @@ import Avatar from '../common/Avatar.jsx';
 import Badge from '../common/Badge.jsx';
 import { formatRelativeTime } from '../../utils/formatRelativeTime.js';
 
-/**
- * NotificationsDropdown — bell button + dropdown panel mounted in the
- * navbar.
- *
- * Why a single component (vs. a separate `Bell` + a portal `Panel`):
- *   The trigger and the panel share the same `useOnClickOutside` ref,
- *   open state, and keyboard escape handler. Splitting them would only
- *   make the close-on-outside logic harder to reason about.
- *
- * Source navigation:
- *   Each notification carries a `conversationId` (chat-bound types).
- *   On click we route the user to `/chat/<id>` and call `markRead(id)`
- *   in parallel — the navigation itself is immediate, the optimistic
- *   markRead drops the unread badge so the user perceives one unified
- *   action ("open + read") without waiting for a server round-trip.
- *
- * Empty/auth states:
- *   The dropdown intentionally renders even with zero items, so the
- *   user gets a confirming "You're all caught up" rather than a
- *   silently dismissed click — small but important UX detail.
- *
- * SECURITY:
- *   `text` is server-generated and stored sanitized. We render it as
- *   plain text only (no `dangerouslySetInnerHTML`).
- */
-
 const ICON_BY_TYPE = {
   message: MessageSquare,
   mention: AtSign,
@@ -60,7 +34,6 @@ const NotificationsDropdown = () => {
   const containerRef = useRef(null);
   useOnClickOutside(containerRef, () => setOpen(false));
 
-  // Close on Escape — keeps parity with native menu behaviour.
   useEffect(() => {
     if (!open) return undefined;
     const handler = (event) => {
@@ -70,16 +43,14 @@ const NotificationsDropdown = () => {
     return () => document.removeEventListener('keydown', handler);
   }, [open]);
 
-  // Show at most 20 in the dropdown — the "View all" link is the
-  // overflow path, not infinite scroll inside a popover.
+  // Anything beyond 20 is reached through "View all notifications".
   const recent = useMemo(() => notifications.slice(0, 20), [notifications]);
 
   const handleItemClick = (notification) => {
     setOpen(false);
     if (!notification?.isRead) {
-      markRead(notification._id).catch(() => {
-        /* The context already self-heals the badge on failure. */
-      });
+      // The context re-syncs the badge itself if this fails.
+      markRead(notification._id).catch(() => {});
     }
     if (notification?.conversationId) {
       navigate(`/chat/${notification.conversationId}`);
@@ -94,7 +65,7 @@ const NotificationsDropdown = () => {
     try {
       await markAllRead();
     } catch {
-      toast.error('Could not mark all as read.');
+      toast.error('Could not mark all as read');
     } finally {
       setBusyAll(false);
     }

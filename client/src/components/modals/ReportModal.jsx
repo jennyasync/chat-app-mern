@@ -10,24 +10,6 @@ import {
   REPORT_REASONS,
 } from '../../utils/constants.js';
 
-/**
- * ReportModal — file an abuse report against a user OR a message.
- *
- * Why one component for both:
- *   - The server endpoint (`POST /api/reports`) accepts a discriminated
- *     payload via `targetType`. Splitting this into two components
- *     would duplicate every piece of UX (reason picker, optional
- *     details, submit state) for no functional gain.
- *
- * Behaviour:
- *   - Reason is required (radios).
- *   - Free-text details are optional, capped at REPORT_DETAILS_MAX_LENGTH.
- *   - State resets every time the dialog opens so a previous half-typed
- *     report doesn't leak into a new submission.
- *   - The actual API call is owned here (not the parent) because every
- *     surface that triggers a report wants the same toast + close
- *     behaviour, and the response payload is uninteresting downstream.
- */
 const TARGET_LABEL = {
   user: 'user',
   message: 'message',

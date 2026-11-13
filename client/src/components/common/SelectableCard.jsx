@@ -1,17 +1,6 @@
 import clsx from 'clsx';
 import { Check } from 'lucide-react';
 
-/**
- * SelectableCard — radio-style card used by Appearance settings (theme,
- * font size, density). Each card is a single tappable target with a
- * highlighted state when selected.
- *
- * Accessibility:
- *   - Rendered as `<button role="radio">` so screen readers announce a
- *     radio-group when wrapped in `role="radiogroup"`.
- *   - The check icon in the corner is decorative; the radio state is
- *     announced via `aria-checked`.
- */
 const SelectableCard = ({
   selected = false,
   onSelect,

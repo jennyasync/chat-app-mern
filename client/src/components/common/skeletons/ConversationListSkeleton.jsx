@@ -1,15 +1,5 @@
 import Skeleton from './Skeleton.jsx';
 
-/**
- * ConversationListSkeleton — shimmer rows shown while the sidebar is
- * fetching its first page of conversations.
- *
- * Why a deterministic count (not random):
- *   The number of rows must be predictable so the layout doesn't shift
- *   when the real data lands. 6 rows fit comfortably above the fold on
- *   a 768 px viewport without making the loader feel busier than the
- *   eventual content.
- */
 const ConversationListSkeleton = ({ rows = 6 }) => (
   <ul className="space-y-1.5" aria-busy="true" aria-label="Loading conversations">
     {Array.from({ length: rows }).map((_, index) => (

@@ -5,22 +5,6 @@ import { AlertTriangle } from 'lucide-react';
 import Modal from './Modal.jsx';
 import Spinner from './Spinner.jsx';
 
-/**
- * ConfirmModal — small confirmation dialog built on the shared `Modal`.
- *
- * Why a dedicated wrapper:
- *   - Every destructive action (delete account, leave conversation,
- *     unblock user, …) needs the same plumbing — a title, a body, two
- *     buttons, and an in-flight state. Centralising it keeps the
- *     copy/visual style consistent app-wide.
- *
- * Behaviour:
- *   - The confirm handler is awaited so the dialog can show a spinner
- *     while the network call resolves AND can keep itself open if the
- *     handler throws (so the user sees the error toast and can retry).
- *   - Backdrop click and Escape are disabled by default — destructive
- *     dialogs must require an explicit click on Cancel or Confirm.
- */
 const VARIANT_STYLES = {
   danger:
     'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500 dark:bg-red-600 dark:hover:bg-red-700',
@@ -48,8 +32,7 @@ const ConfirmModal = ({
     try {
       await onConfirm?.();
     } catch {
-      /* Error surfacing is the caller's responsibility (toast, inline
-       * error). We swallow here so the dialog can stay open for retry. */
+      // The caller shows the error; staying open lets the user retry.
     } finally {
       setSubmitting(false);
     }

@@ -14,31 +14,6 @@ import Avatar from '../common/Avatar.jsx';
 import Badge from '../common/Badge.jsx';
 import { formatRelativeTime } from '../../utils/formatRelativeTime.js';
 
-/**
- * UserRow — single row of `AdminUsers`'s data table.
- *
- * Why pulled into its own component (instead of inlined in the page):
- *   - Each row owns five action buttons whose disabled / variant rules
- *     depend on three signals (target status, target role, "is this me?").
- *     Inlining would push the page well past 250 LOC of nested ternaries
- *     and make Strict-Mode renders measurably slower for >50 users.
- *   - Re-rendered in isolation when the row's user object changes (page
- *     paginates server-side, so identity churn is naturally bounded).
- *
- * Self-protection contract (mirrors the server):
- *   - Every action that mutates the target is disabled and tooltipped
- *     when `isSelf` is true. The server ALSO enforces 403 on those
- *     paths — the disable here is purely UX so the admin doesn't see a
- *     button and then a toast saying "you can't do that".
- *   - Suspending / deleting an admin target is also disabled because the
- *     server forbids both at the route layer for the same blast-radius
- *     reasons (one compromised admin can't silence the team).
- *
- * `pendingAction` is a discriminator owned by the page so only the
- * button currently in flight shows the spinner — the remaining buttons
- * stay clickable for batched moderation.
- */
-
 const STATUS_VARIANT = {
   active: 'success',
   suspended: 'danger',
@@ -65,6 +40,7 @@ const UserRow = ({
   const isAdmin = user.role === 'admin';
   const isSuspended = user.status === 'suspended';
 
+  // The server also blocks self-actions and suspending/deleting admins; this just hides the 403
   const protectedTarget = isSelf || isAdmin;
   const protectedTooltip = isSelf
     ? SELF_TOOLTIP
@@ -162,7 +138,7 @@ const UserRow = ({
           {isAdmin ? (
             <ShieldCheck
               className="ml-1 h-4 w-4 text-brand-500"
-              aria-label="Admin account — protected"
+              aria-label="Admin account, protected"
             />
           ) : null}
         </div>
@@ -179,11 +155,6 @@ const TONE_STYLES = {
   danger: 'text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40',
 };
 
-/**
- * RowAction — icon-only button (or `Link`) used by every row action.
- * `busy` swaps the icon for a small spinning ring without changing the
- * footprint, so the row layout never reflows mid-mutation.
- */
 const RowAction = ({
   as: Component = 'button',
   icon: Icon,

@@ -1,14 +1,5 @@
 import Skeleton from './Skeleton.jsx';
 
-/**
- * AdminTableSkeleton — placeholder for the moderation tables
- * (`AdminUsers`, `AdminReports`) while the first page is in flight.
- *
- * The number of columns is configurable so both tables can use the
- * same primitive without faking columns they don't actually render.
- * The header row uses thinner bars so the loader still reads as a
- * "table" structure rather than a grid of identical pills.
- */
 const AdminTableSkeleton = ({ rows = 8, columns = 5 }) => (
   <div
     aria-busy="true"

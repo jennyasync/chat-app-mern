@@ -1,11 +1,5 @@
 import Skeleton from './Skeleton.jsx';
 
-/**
- * ProfileSkeleton — placeholder for `/u/:username` while the profile
- * is being fetched. Mirrors the eventual layout (banner, avatar, title
- * column, action cluster, bio + meta row) so the page doesn't reflow
- * once the data arrives.
- */
 const ProfileSkeleton = () => (
   <div
     aria-busy="true"

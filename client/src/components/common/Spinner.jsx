@@ -1,18 +1,5 @@
 import clsx from 'clsx';
 
-/**
- * Spinner — minimal, theme-aware loading indicator.
- *
- * `fullPage` is the variant used by route guards while the auth
- * bootstrap is in flight. It centres the spinner over the entire
- * viewport so the user never sees a blank screen flash before the
- * app decides whether they're authenticated.
- *
- * `size` is a Tailwind-friendly token (sm | md | lg | xl) rather than
- * a raw pixel value so the spinner sits cleanly inside buttons,
- * inline next to text, or as a full-page overlay without per-callsite
- * style overrides.
- */
 const SIZE_MAP = {
   sm: 'h-4 w-4 border-2',
   md: 'h-6 w-6 border-2',

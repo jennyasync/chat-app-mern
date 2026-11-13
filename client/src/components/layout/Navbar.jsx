@@ -16,26 +16,6 @@ import { useOnClickOutside } from '../../hooks/useOnClickOutside.js';
 import Avatar from '../common/Avatar.jsx';
 import NotificationsDropdown from './NotificationsDropdown.jsx';
 
-/**
- * Navbar — global top bar shown by `MainLayout` (and therefore by the
- * profile, settings and admin sub-trees).
- *
- * The chat surface deliberately uses its own chrome (full-bleed
- * sidebar + conversation panel) and does NOT mount this navbar — the
- * brand link below routes back to `/chat` so users always have a
- * one-click escape hatch from any sub-page.
- *
- * Implementation notes:
- *   - The avatar dropdown uses `useOnClickOutside` so a click anywhere
- *     else (including the bell or the brand link) collapses it. We
- *     also close on route change to avoid stale menus after navigation.
- *   - The mobile drawer is a separate `<aside>` toggled by a hamburger;
- *     it intentionally renders the same nav links so screen-reader and
- *     keyboard users get a consistent target list at every viewport.
- *   - The notification bell delegates to `NotificationsDropdown`, which
- *     owns its own popover (recent items, "Mark all read", "View all").
- */
-
 const navLinkClass = ({ isActive }) =>
   clsx(
     'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
@@ -54,15 +34,12 @@ const Navbar = () => {
   const menuRef = useRef(null);
   useOnClickOutside(menuRef, () => setMenuOpen(false));
 
-  // Collapse all overlays whenever the URL changes so a freshly
-  // navigated page never inherits an open drawer/dropdown.
   useEffect(() => {
     setMenuOpen(false);
     setDrawerOpen(false);
   }, [location.pathname]);
 
-  // Lock body scroll while the mobile drawer is open — without this,
-  // the page underneath happily scrolls behind the slide-over.
+  // Stop the page behind the mobile drawer from scrolling.
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
     const original = document.body.style.overflow;
@@ -82,7 +59,6 @@ const Navbar = () => {
     <>
     <header className="sticky top-0 z-30 w-full border-b border-gray-200 bg-white/80 backdrop-blur dark:border-gray-800 dark:bg-gray-950/80">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
-        {/* Brand */}
         <Link
           to="/chat"
           className="flex items-center gap-2 text-brand-600 transition-opacity hover:opacity-80 dark:text-brand-400"
@@ -95,7 +71,6 @@ const Navbar = () => {
           </span>
         </Link>
 
-        {/* Desktop center nav */}
         <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
           <NavLink to="/chat" className={navLinkClass} end={false}>
             Chat
@@ -107,11 +82,9 @@ const Navbar = () => {
           ) : null}
         </nav>
 
-        {/* Desktop right cluster */}
         <div className="flex items-center gap-1 sm:gap-2">
           <NotificationsDropdown />
 
-          {/* Avatar dropdown (desktop) */}
           <div className="relative hidden md:block" ref={menuRef}>
             <button
               type="button"
@@ -179,7 +152,6 @@ const Navbar = () => {
             ) : null}
           </div>
 
-          {/* Mobile hamburger */}
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
@@ -193,10 +165,7 @@ const Navbar = () => {
       </div>
     </header>
 
-    {/* Mobile drawer — rendered OUTSIDE the sticky header so its
-     * z-index isn't trapped in the header's stacking context. Without
-     * this, sibling layouts (e.g. AdminLayout's mobile tab nav) bleed
-     * through the drawer panel. */}
+    {/* Rendered outside the sticky header so its z-index isn't trapped in the header's stacking context. */}
     {drawerOpen ? (
       <div
         className="fixed inset-0 z-50 md:hidden"

@@ -3,35 +3,6 @@ import { createPortal } from 'react-dom';
 import clsx from 'clsx';
 import { X } from 'lucide-react';
 
-/**
- * Modal — accessible, theme-aware dialog used by every overlay surface
- * (`NewChatModal`, `NewGroupModal`, future confirm dialogs, etc.).
- *
- * Why a portal:
- *   The modal must escape any `overflow-hidden` ancestor (the chat
- *   layout panes deliberately clip), and must paint above every
- *   sibling regardless of stacking-context surprises. A portal to
- *   `document.body` is the only universally-correct container.
- *
- * Accessibility contract:
- *   - `role="dialog"` + `aria-modal="true"` so assistive tech treats
- *     surrounding content as inert.
- *   - `aria-labelledby` wires the title element to the dialog so
- *     screen readers announce a meaningful name when the dialog opens.
- *   - Focus is moved into the dialog on open and restored to the
- *     previously-focused element on close — losing focus to `<body>`
- *     would force keyboard users to tab through the entire app to
- *     return to where they were.
- *   - Escape key and backdrop click both dismiss (configurable so a
- *     destructive confirm can opt out and require an explicit choice).
- *   - Body scroll is locked while open so background swipes / wheel
- *     events don't leak through the backdrop.
- *
- * Focus trap is intentionally lightweight (cycles through tabbable
- * descendants on Tab/Shift+Tab) rather than pulling in a full focus
- * library — the project rule "avoid unnecessary dependencies" wins.
- */
-
 const SIZE_MAP = {
   sm: 'max-w-md',
   md: 'max-w-lg',
@@ -67,8 +38,6 @@ const Modal = ({
   const titleId = useId();
   const descriptionId = useId();
 
-  /* Body scroll lock + focus management. Using a single effect (and a
-   * single guard on `open`) keeps the cleanup paths trivial. */
   useEffect(() => {
     if (!open) return undefined;
 
@@ -77,8 +46,7 @@ const Modal = ({
     const previousOverflow = body.style.overflow;
     body.style.overflow = 'hidden';
 
-    /* Defer the initial focus by a tick so the portal node has been
-     * attached and any child autoFocus has resolved. */
+    // Wait a tick so the portal is mounted and child autoFocus has run.
     const focusTimer = window.setTimeout(() => {
       const explicit = initialFocusRef?.current;
       if (explicit && typeof explicit.focus === 'function') {
@@ -149,6 +117,7 @@ const Modal = ({
 
   if (!open || typeof document === 'undefined') return null;
 
+  // Portal to body so the dialog escapes the chat panes' overflow-hidden.
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-gray-900/60 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6"

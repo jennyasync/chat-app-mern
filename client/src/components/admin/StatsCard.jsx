@@ -1,24 +1,5 @@
 import clsx from 'clsx';
 
-/**
- * StatsCard — small metric tile used by `AdminDashboard`.
- *
- * Why a dedicated component (instead of a generic card):
- *   - The dashboard renders a homogeneous grid of 8 metrics. Locking the
- *     visual treatment in one place keeps the grid optically aligned and
- *     makes every metric automatically inherit accent + dark-mode tweaks
- *     from a single edit.
- *
- * Variants are intentionally semantic ("danger" for suspended /
- * pending-reports counters, "neutral" for plain counts) instead of
- * raw colour names, so callers can't drift the palette per-callsite.
- *
- * `loading` paints a dim shimmer-free placeholder — we deliberately
- * avoid animated skeletons here because eight cards pulsing in sync
- * is more distracting than a static placeholder during the ~150 ms
- * the `/admin/stats` call typically takes.
- */
-
 const VARIANT_STYLES = {
   neutral: {
     iconWrap:
@@ -75,7 +56,7 @@ const StatsCard = ({
       ) : null}
 
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           {label}
         </p>
         <p

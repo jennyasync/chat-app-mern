@@ -31,37 +31,6 @@ import ConversationListSkeleton from '../common/skeletons/ConversationListSkelet
 import ConversationListItem from '../chat/ConversationListItem.jsx';
 import PresenceDot from '../chat/PresenceDot.jsx';
 
-/**
- * Sidebar — the conversation list on the left of `ChatLayout`.
- *
- * Architecture notes for this step (STEP 25):
- *   - State of the *list* lives in `ChatStateContext` (refetch, upsert,
- *     unread bumps). The Sidebar is the only consumer that wires socket
- *     events into those primitives — every other surface (chat panel,
- *     modals) just reads or upserts.
- *   - The search bar swaps the list mode entirely: typing queries the
- *     `/users/search` endpoint via a 300 ms debounce, and clicking a
- *     result opens (or creates) the direct conversation. We deliberately
- *     do NOT fuzzy-search conversations client-side — that scales
- *     poorly and surfaces stale data; a missing chat is one tap away
- *     via the user search instead.
- *   - The "+ New" menu opens the shared composer modals
- *     (`NewChatModal` / `NewGroupModal`) by toggling flags on
- *     `ChatStateContext`. The modals themselves live one level up in
- *     `ChatLayout` so the empty-state CTA can trigger the same flow
- *     without duplicating mounts.
- *   - Live socket listeners are scoped to this component because they
- *     only matter while the user is looking at `/chat/*`. `ChatLayout`
- *     unmounts the whole tree (and tears down the listeners with it)
- *     when the user navigates to `/settings` or `/u/...`.
- *
- * Why this file uses refs for `activeConversationId` and `currentUserId`:
- *   The socket listeners are registered once per `socket` instance.
- *   Re-binding them on every render would risk dropping events that
- *   land between detach + reattach. Refs let the stable handlers read
- *   current values without participating in the effect deps.
- */
-
 const TABS = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
@@ -104,7 +73,6 @@ const Sidebar = () => {
     [user?.mutedConversations],
   );
 
-  /* ---------- Search ---------- */
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounce(query.trim(), 300);
   const [searchResults, setSearchResults] = useState([]);
@@ -135,7 +103,6 @@ const Sidebar = () => {
     };
   }, [debouncedQuery]);
 
-  /* ---------- Tabs (All / Unread / Archived) ---------- */
   const [activeTab, setActiveTab] = useState('all');
   const [archivedConversations, setArchivedConversations] = useState([]);
   const [isLoadingArchived, setIsLoadingArchived] = useState(false);
@@ -171,15 +138,11 @@ const Sidebar = () => {
     return conversations;
   }, [activeTab, archivedConversations, conversations]);
 
-  /* ---------- "+ New" dropdown ---------- */
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const newMenuRef = useRef(null);
   useOnClickOutside(newMenuRef, () => setNewMenuOpen(false));
 
-  /* ---------- Real-time wiring ----------
-   * Refs keep the long-lived socket listeners pointing at the freshest
-   * `activeConversationId` / `currentUserId` without re-subscribing on
-   * every render. */
+  // Refs let the socket listeners read current values without resubscribing (and dropping events).
   const activeRef = useRef(activeConversationId);
   const userIdRef = useRef(currentUserId);
   useEffect(() => {
@@ -197,9 +160,7 @@ const Sidebar = () => {
       const conversationId = String(message.conversationId);
       const senderId = message?.sender?._id ? String(message.sender._id) : null;
 
-      // Mirror the server's `lastMessage` snapshot rules so the live
-      // sidebar preview matches what a refetch would show: image messages
-      // render as "[image]" regardless of any caption.
+      // Matches the server's lastMessage snapshot so a refetch shows the same preview.
       const lastMessage = {
         text: message.type === 'image' ? '[image]' : (message.text ?? ''),
         sender: message.sender ?? null,
@@ -241,9 +202,7 @@ const Sidebar = () => {
     };
 
     const handleMembershipChange = () => {
-      // Member add/remove changes the participant list — easiest correct
-      // behaviour is to refetch so the populated participant docs are
-      // fresh (display name, avatar, presence flag).
+      // Refetch so the populated participant docs are fresh.
       refreshConversations();
     };
 
@@ -251,7 +210,7 @@ const Sidebar = () => {
       if (!conversationId) return;
       removeConversation(conversationId);
       if (String(conversationId) === activeRef.current) {
-        toast('You were removed from a group.', { icon: '⚠️' });
+        toast('You were removed from a group');
         navigate('/chat', { replace: true });
       }
     };
@@ -283,12 +242,8 @@ const Sidebar = () => {
     navigate,
   ]);
 
-  /* ---------- Handlers ---------- */
   const handleConversationClick = useCallback(
     (conversationId) => {
-      // Optimistic local reset. Step 27 will fire the actual `markAsRead`
-      // REST call and the server-driven `conversation:readBy` echo will
-      // align everyone else's UI.
       resetUnread(conversationId);
     },
     [resetUnread],
@@ -322,7 +277,6 @@ const Sidebar = () => {
     setSearchResults([]);
   }, []);
 
-  /* ---------- Render helpers ---------- */
   const showSearchResults = debouncedQuery.length > 0;
 
   const renderListBody = () => {
@@ -477,7 +431,6 @@ const Sidebar = () => {
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-      {/* Brand + actions */}
       <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-2.5 dark:border-gray-800">
         <Link
           to="/chat"
@@ -551,7 +504,6 @@ const Sidebar = () => {
         </div>
       </div>
 
-      {/* Search */}
       <div className="px-3 py-2">
         <label className="relative block">
           <span className="sr-only">Search users</span>
@@ -563,7 +515,7 @@ const Sidebar = () => {
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search users by name or @username…"
+            placeholder="Search users"
             className="w-full rounded-md border border-gray-200 bg-gray-50 py-1.5 pr-8 pl-8 text-sm text-gray-900 placeholder-gray-400 focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus:bg-gray-900"
             aria-label="Search users"
           />
@@ -580,7 +532,6 @@ const Sidebar = () => {
         </label>
       </div>
 
-      {/* Tabs (hidden while searching to avoid mode confusion) */}
       {!showSearchResults ? (
         <div
           role="tablist"
@@ -610,12 +561,10 @@ const Sidebar = () => {
         </div>
       ) : null}
 
-      {/* List body */}
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {renderListBody()}
       </div>
 
-      {/* Current-user footer */}
       <div className="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-800">
         <Link
           to={user?.username ? `/u/${user.username}` : '/settings/profile'}

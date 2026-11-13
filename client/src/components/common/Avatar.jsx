@@ -1,29 +1,6 @@
 import { useMemo, useState } from 'react';
 import clsx from 'clsx';
 
-/**
- * Avatar — circular user image with graceful fallback to initials.
- *
- * Why we don't render an `<img>` until we know it loads:
- *   A broken avatar URL (Cloudinary deleted, CORS blocked) would show
- *   the browser's default broken-image glyph, which looks worse than
- *   no image at all. We render `<img>` optimistically but swap to the
- *   initials fallback on `onError`.
- *
- * Deterministic background palette:
- *   The fallback chip used to always paint in the brand colour, which
- *   made every initials avatar look identical in a crowded list. We
- *   now hash the username (or display name) into one of a vetted set
- *   of WCAG-AA-friendly tints so Alice and Bob get visually distinct
- *   chips that stay STABLE across renders and devices. We hash the
- *   username (immutable identity) rather than the display name (user
- *   editable) so the colour doesn't change every time someone tweaks
- *   their profile.
- *
- * Online dot is purely presentational — actual presence comes from
- * `SocketContext.onlineUserIds`; consumers pass `online` as a boolean.
- */
-
 const SIZE_MAP = {
   xs: 'h-6 w-6 text-[10px]',
   sm: 'h-8 w-8 text-xs',
@@ -40,9 +17,6 @@ const DOT_SIZE = {
   xl: 'h-3.5 w-3.5',
 };
 
-/* Hand-picked palette — every tint passes WCAG AA at the listed text
- * colour for both light and dark themes. Adding/removing entries is
- * safe; the hash modulo will rebalance automatically. */
 const FALLBACK_PALETTE = [
   'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
   'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
@@ -61,8 +35,7 @@ const getInitials = (name = '') => {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 };
 
-/* Tiny djb2-style hash — deterministic and good enough for bucketing
- * a few thousand usernames into 8 colour bins. Not cryptographic. */
+// djb2-style hash, only used to pick a stable color bucket.
 const hashString = (input = '') => {
   const value = String(input);
   let hash = 5381;
@@ -90,9 +63,7 @@ const Avatar = ({
   const initials = useMemo(() => getInitials(name), [name]);
   const sizeClasses = SIZE_MAP[size] ?? SIZE_MAP.md;
   const dotClasses = DOT_SIZE[size] ?? DOT_SIZE.md;
-  /* Prefer the immutable username for the colour seed so renames don't
-   * shuffle the user's chip. Fall back to display name then initials so
-   * we never end up at a single colour for guests/unknown users. */
+  // Seed with the username, not the display name, so a rename keeps the same color.
   const paletteClass = useMemo(
     () => pickPaletteClass(username || name || initials),
     [username, name, initials],
