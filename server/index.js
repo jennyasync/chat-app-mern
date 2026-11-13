@@ -5,12 +5,10 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
-import swaggerUi from 'swagger-ui-express';
 
 import { env, isProduction, validateEnv } from './config/env.js';
 import { connectDB } from './config/db.js';
 import { createSocketServer } from './config/socket.js';
-import { swaggerSpec, swaggerUiOptions } from './config/swagger.js';
 import { registerSocketHandlers } from './sockets/index.js';
 import { sanitizeRequest } from './middlewares/sanitize.middleware.js';
 import { globalLimiter } from './middlewares/rateLimiters.js';
@@ -26,8 +24,6 @@ import notificationRoutes from './routes/notification.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import reportRoutes from './routes/report.routes.js';
 
-// `package.json` is read at startup so the welcome page version stays
-// in lockstep with the actual deployed build — never hardcoded.
 const require = createRequire(import.meta.url);
 const { version: appVersion } = require('./package.json');
 
@@ -35,15 +31,8 @@ validateEnv();
 
 const app = express();
 
-// 1) Hide framework fingerprint.
 app.disable('x-powered-by');
-
-// 2) Security headers — strict defaults applied globally; the welcome
-//    HTML at `/` and the Swagger UI at `/api-docs` opt out of CSP at
-//    the route level only (see below) so their inline styles can render.
 app.use(helmet());
-
-// 3) Strict CORS — explicit origin, credentials only for the whitelisted client.
 app.use(
   cors({
     origin: env.CLIENT_URL,
@@ -51,82 +40,48 @@ app.use(
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   }),
 );
-
-// 4) Response compression.
 app.use(compression());
 
-// 5) Body parsers — small limit; images go through the dedicated /upload route.
+// Small body limit; images go through /api/upload instead.
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
-
-// 6) NoSQL injection sanitizer (Express 5 safe; skips req.query).
 app.use(sanitizeRequest);
 
-// 7) Request logging in non-production only.
 if (!isProduction) {
   app.use(morgan('dev'));
 }
 
-// 8) Global rate limit on the API surface.
 app.use('/api', globalLimiter);
 
-// 9) Health check — cheap probe for uptime monitors.
 app.get('/api/health', (_req, res) => {
   res.status(200).json({ status: 'ok', uptime: process.uptime() });
 });
 
-// 9.1) API documentation — Swagger UI + raw OpenAPI JSON.
-//      A route-scoped Helmet override disables CSP ONLY here so the
-//      Swagger UI bundle (inline scripts + styles) can execute. The
-//      strict global Helmet from step 2 still applies everywhere else.
-const docsRelaxedHelmet = helmet({ contentSecurityPolicy: false });
-
-app.get('/api-docs.json', docsRelaxedHelmet, (_req, res) => {
-  res.status(200).json(swaggerSpec);
-});
-
-app.use(
-  '/api-docs',
-  docsRelaxedHelmet,
-  swaggerUi.serve,
-  swaggerUi.setup(swaggerSpec, swaggerUiOptions),
-);
-
-// 9.2) Welcome page — chat-themed landing with quick links to docs/health.
-app.get('/', docsRelaxedHelmet, (_req, res) => {
+app.get('/', (_req, res) => {
   res.status(200).type('html').send(renderWelcomePage(appVersion));
 });
 
-// 10) Feature routes.
-app.use('/api/auth', authRoutes); // STEP 3
-// Conversation-scoped message routes must be mounted BEFORE the
-// generic conversation router so `/conversations/:id/messages/...`
-// resolves to the message handlers.
-app.use('/api/conversations/:id/messages', conversationMessageRouter); // STEP 7
-app.use('/api/conversations', conversationRoutes); // STEP 6
-app.use('/api/messages', messageRoutes); // STEP 7
-app.use('/api/users', userRoutes); // STEP 8
-app.use('/api/upload', uploadRoutes); // STEP 8
-app.use('/api/notifications', notificationRoutes); // STEP 16
-app.use('/api/admin', adminRoutes); // STEP 17
-app.use('/api/reports', reportRoutes); // STEP 18
+app.use('/api/auth', authRoutes);
+// Must be mounted before the conversation router so /:id/messages reaches it.
+app.use('/api/conversations/:id/messages', conversationMessageRouter);
+app.use('/api/conversations', conversationRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/reports', reportRoutes);
 
-// 11) 404 + error handler MUST be last.
 app.use(notFoundHandler);
 app.use(errorHandler);
 
 const httpServer = http.createServer(app);
 
-// 12) Socket.io — attached to the same HTTP server so REST and
-//     WebSocket share one port (no extra firewall hole) and one CORS
-//     policy (single source of truth). Handshake auth + connection
-//     lifecycle are wired in `sockets/index.js`.
+// REST and Socket.io share one HTTP server, so one port and one CORS origin.
 const io = createSocketServer(httpServer, env);
 registerSocketHandlers(io);
 
-// Expose `io` to Express handlers (for emitting from REST routes, e.g.
-// admin force-disconnect). Reading via `req.app.get('io')` keeps this
-// dependency explicit and avoids creating a circular import.
+// Controllers read this via req.app.get('io') to emit events without a circular import.
 app.set('io', io);
 
 const start = async () => {
@@ -140,8 +95,7 @@ start();
 
 const shutdown = (signal) => {
   console.log(`[server] received ${signal}, shutting down...`);
-  // Order matters: close Socket.io first so in-flight handshakes and
-  // long-poll requests stop before the HTTP server tears down.
+  // Close sockets first so long-poll requests stop before the HTTP server closes.
   io.close(() => {
     httpServer.close(() => process.exit(0));
   });
@@ -150,14 +104,6 @@ const shutdown = (signal) => {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-/**
- * Renders the public welcome page served at `/`.
- *
- * The visual language leans into the project's chat domain: floating
- * speech-bubble decorations, an indigo→violet→pink gradient that mirrors
- * the chat surface, and a typing-indicator pulse on the title underline.
- * All assets are pure CSS — no remote fonts, images, or fetches.
- */
 const renderWelcomePage = (version) => `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -191,7 +137,6 @@ const renderWelcomePage = (version) => `<!DOCTYPE html>
       overflow-x: hidden;
       position: relative;
     }
-    /* Decorative chat bubbles floating in the background. */
     body::before, body::after {
       content: "";
       position: absolute;
@@ -324,15 +269,6 @@ const renderWelcomePage = (version) => `<!DOCTYPE html>
       transform: translateY(-2px);
       box-shadow: 0 18px 36px -12px rgba(139, 92, 246, 0.75);
     }
-    .btn-secondary {
-      color: var(--indigo);
-      background: rgba(99, 102, 241, 0.08);
-      border: 1px solid rgba(99, 102, 241, 0.25);
-    }
-    .btn-secondary:hover {
-      transform: translateY(-2px);
-      background: rgba(99, 102, 241, 0.14);
-    }
     .sign {
       padding-top: 24px;
       border-top: 1px solid #e2e8f0;
@@ -372,15 +308,14 @@ const renderWelcomePage = (version) => `<!DOCTYPE html>
     <p class="version">v${version}</p>
 
     <p class="lead">
-      Production-grade real-time messaging backend powered by
+      Real-time messaging backend powered by
       <strong>Express 5</strong>, <strong>MongoDB</strong>, and
-      <strong>Socket.io</strong> — with JWT auth, Cloudinary uploads, and a
-      hardened admin moderation surface.
+      <strong>Socket.io</strong>, with JWT auth, Cloudinary uploads and admin
+      moderation.
     </p>
 
     <nav class="links" aria-label="Useful endpoints">
-      <a href="/api-docs" class="btn-primary">API Documentation</a>
-      <a href="/api/health" class="btn-secondary">Health Check</a>
+      <a href="/api/health" class="btn-primary">Health Check</a>
     </nav>
 
     <footer class="sign">
@@ -390,4 +325,3 @@ const renderWelcomePage = (version) => `<!DOCTYPE html>
   </main>
 </body>
 </html>`;
-

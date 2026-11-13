@@ -32,13 +32,8 @@ export const env = Object.freeze({
 });
 
 export const isProduction = env.NODE_ENV === 'production';
-export const isDevelopment = env.NODE_ENV === 'development';
-export const isTest = env.NODE_ENV === 'test';
 
-/**
- * Hard-fail fast in production if any critical secret is missing or weak.
- * Called from index.js BEFORE the HTTP server starts listening.
- */
+// Fail fast in production if a secret is missing or still the example value.
 export const validateEnv = () => {
   if (!isProduction) return;
 

@@ -9,7 +9,7 @@ export const connectDB = async () => {
       serverSelectionTimeoutMS: 10_000,
     });
 
-    // Avoid logging the URI — it can contain credentials.
+    // Don't log the URI, it can contain credentials.
     console.log(`[db] MongoDB connected: ${conn.connection.host}/${conn.connection.name}`);
 
     mongoose.connection.on('error', (err) => {
