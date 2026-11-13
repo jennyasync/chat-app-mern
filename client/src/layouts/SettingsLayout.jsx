@@ -9,18 +9,6 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 
-/**
- * SettingsLayout — left sub-nav (desktop) / dropdown (mobile) for the
- * `/settings/*` tree.
- *
- * Why a dropdown on mobile rather than tabs:
- *   The settings catalogue has six entries and is expected to grow.
- *   Horizontal tabs at small widths force constant horizontal scroll
- *   and hide the active section; a single `<select>` keeps the
- *   current section visible at a glance and avoids the off-screen
- *   overflow problem entirely.
- */
-
 const NAV_ITEMS = [
   { to: '/settings/profile', label: 'Profile', icon: UserIcon },
   { to: '/settings/account', label: 'Account', icon: UserCog },
@@ -65,7 +53,7 @@ const SettingsLayout = () => {
       </header>
 
       <aside className="hidden w-56 shrink-0 md:block">
-        <h1 className="mb-3 px-3 text-xs font-semibold tracking-wider text-gray-500 uppercase dark:text-gray-400">
+        <h1 className="mb-3 px-3 text-sm font-semibold text-gray-900 dark:text-white">
           Settings
         </h1>
         <nav aria-label="Settings sections" className="space-y-1">

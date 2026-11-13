@@ -9,24 +9,6 @@ import Spinner from '../../components/common/Spinner.jsx';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { getBlockedUsers, unblockUser } from '../../api/user.service.js';
 
-/**
- * BlockedUsersSettings — list of users the viewer has blocked, with an
- * inline Unblock action.
- *
- * Privacy contract:
- *   - We deliberately render only the safe public fields the server
- *     ships in `getBlockedUsers` (avatar, display name, @username) and
- *     never any PII (email, last seen). Even if the server response
- *     started shipping more in the future, this page is a hard gate.
- *
- * Optimistic UX:
- *   - Unblocking flips the row out of state immediately and updates
- *     the AuthContext mirror so other surfaces (search, profile page)
- *     reflect the change without a refetch. On failure we re-fetch to
- *     repair drift instead of trying to manually re-insert the row in
- *     its original sort position.
- */
-
 const BlockedUsersSettings = () => {
   const { updateUser } = useAuth();
 
@@ -48,7 +30,7 @@ const BlockedUsersSettings = () => {
       });
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Failed to load blocked users.';
+        err?.response?.data?.message || 'Failed to load blocked users';
       setState({ loading: false, error: message, users: [] });
     }
   }, []);
@@ -61,7 +43,7 @@ const BlockedUsersSettings = () => {
     if (!target?._id || unblockingId) return;
     setUnblockingId(String(target._id));
 
-    /* Optimistic remove + AuthContext mirror update. */
+    // Optimistic: also update the auth user so search and profile pages see it without a refetch.
     setState((prev) => ({
       ...prev,
       users: prev.users.filter((u) => String(u._id) !== String(target._id)),
@@ -78,11 +60,12 @@ const BlockedUsersSettings = () => {
 
     try {
       await unblockUser(target._id);
-      toast.success(`${target.displayName || target.username} unblocked.`);
+      toast.success(`${target.displayName || target.username} unblocked`);
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Could not unblock user.';
+        err?.response?.data?.message || 'Could not unblock user';
       toast.error(message);
+      // Refetch rather than re-inserting the row in its old position.
       refresh();
     } finally {
       setUnblockingId(null);

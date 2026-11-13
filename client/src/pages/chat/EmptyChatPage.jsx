@@ -2,21 +2,6 @@ import { MessageSquare, Plus, Users } from 'lucide-react';
 
 import { useChatState } from '../../contexts/ChatStateContext.jsx';
 
-/**
- * EmptyChatPage — rendered at `/chat` when no conversation is selected.
- *
- * This page lives inside `ChatLayout` so the conversation sidebar is
- * already on screen on desktop; the empty pane just invites the user
- * to pick a conversation. On mobile the layout swaps panes by URL, so
- * this state actually never reaches mobile (the sidebar takes the
- * whole screen at `/chat`) — but it stays valid as a fallback.
- *
- * The CTAs here mirror the sidebar's "+ New" menu so users discover
- * both flows whether they enter from the desktop empty state or the
- * mobile list. The actual modals are mounted once in `ChatLayout`
- * and toggled through `ChatStateContext` — see `openNewChat` /
- * `openNewGroup` for the contract.
- */
 const EmptyChatPage = () => {
   const { openNewChat, openNewGroup } = useChatState();
 

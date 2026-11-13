@@ -22,29 +22,6 @@ import {
   updateUserStatus,
 } from '../../api/admin.service.js';
 
-/**
- * AdminUsers — paginated, filterable user-management table.
- *
- * Filter design:
- *   - `q` is debounced (300 ms) so a fast typer doesn't fire one HTTP
- *     call per keystroke. Page resets to 1 on filter change so the user
- *     never lands on an empty page after narrowing the result set.
- *   - Status / role are committed instantly because they're discrete
- *     selects — there's no value in waiting for a debounce.
- *
- * Action contract (mirrors the server):
- *   - Suspend / reinstate toggle — gated client-side AND server-side
- *     (admin self-protection, admin-target protection).
- *   - Role toggle — same self-protection. Last-admin protection is
- *     enforced server-side (HTTP 403); the toast surfaces the message.
- *   - Delete — irreversible cascade (avatar + messages anonymised,
- *     conversations pulled). Always passes through `ConfirmModal`.
- *
- * `pendingActionByUser` is a `Map` so multiple users can be in flight
- * simultaneously (rare, but happens when an admin batches actions).
- * Lookup stays O(1) without a per-user re-render fan-out.
- */
-
 const PAGE_SIZE = 20;
 
 const STATUS_OPTIONS = [
@@ -78,15 +55,11 @@ const AdminUsers = () => {
 
   const debouncedQ = useDebounce(filters.q.trim(), 300);
 
-  /* `pendingActionByUser` maps userId → { action, intent? } so a row
-   * knows whether ITS specific action is in flight. Using a `Map`
-   * (not a plain object) keeps the React state a stable reference per
-   * row even when other rows mutate the same map. */
+  // userId -> action in flight, so each row can show its own spinner
   const [pendingActionByUser, setPendingActionByUser] = useState(() => new Map());
   const [confirm, setConfirm] = useState(null);
 
-  /* Reset to page 1 whenever any filter changes — otherwise narrowing
-   * "users" → "admins" with 200 results on page 5 would show empty. */
+  // Back to page 1 so narrowing the filters never lands on an empty page
   useEffect(() => {
     setPage(1);
   }, [debouncedQ, filters.status, filters.role]);
@@ -112,7 +85,7 @@ const AdminUsers = () => {
       });
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Failed to load users.';
+        err?.response?.data?.message || 'Failed to load users';
       setState({ ...initialState, loading: false, error: message });
     }
   }, [debouncedQ, filters.status, filters.role, page]);
@@ -120,8 +93,6 @@ const AdminUsers = () => {
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
-
-  /* ---------- Per-row action helpers ---------- */
 
   const setPending = useCallback((userId, action) => {
     setPendingActionByUser((prev) => {
@@ -206,7 +177,7 @@ const AdminUsers = () => {
             setConfirm(null);
           } catch (err) {
             const message =
-              err?.response?.data?.message || 'Could not update role.';
+              err?.response?.data?.message || 'Could not update role';
             toast.error(message);
             throw err;
           } finally {
@@ -251,7 +222,7 @@ const AdminUsers = () => {
             setConfirm(null);
           } catch (err) {
             const message =
-              err?.response?.data?.message || 'Could not delete user.';
+              err?.response?.data?.message || 'Could not delete user';
             toast.error(message);
             throw err;
           } finally {
@@ -262,8 +233,6 @@ const AdminUsers = () => {
     },
     [setPending],
   );
-
-  /* ---------- Derived ---------- */
 
   const summary = useMemo(() => {
     if (state.loading) return 'Loading users…';
@@ -319,7 +288,7 @@ const AdminUsers = () => {
             onChange={(event) =>
               setFilters((prev) => ({ ...prev, q: event.target.value }))
             }
-            placeholder="Search by name, username or email…"
+            placeholder="Name, username or email"
             maxLength={60}
             className="block w-full rounded-md border border-gray-200 bg-white py-2 pl-9 pr-9 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
           />
@@ -392,7 +361,7 @@ const AdminUsers = () => {
       ) : (
         <div className="scrollbar-thin overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800">
           <table className="w-full min-w-[720px] text-left">
-            <thead className="bg-gray-50 text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:bg-gray-900/60 dark:text-gray-400">
+            <thead className="bg-gray-50 text-xs font-medium text-gray-500 dark:bg-gray-900/60 dark:text-gray-400">
               <tr>
                 <th className="px-3 py-2">User</th>
                 <th className="hidden px-3 py-2 sm:table-cell">Email</th>

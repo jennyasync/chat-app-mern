@@ -13,17 +13,7 @@ import SelectableCard from '../../components/common/SelectableCard.jsx';
 import ToggleSwitch from '../../components/common/ToggleSwitch.jsx';
 import { usePreferences } from '../../contexts/PreferencesContext.jsx';
 
-/**
- * AppearanceSettings — theme, font size, density and animations.
- *
- * Why every change auto-saves:
- *   - The Settings tree generally distinguishes "compose then save"
- *     (Profile, Account) from "tweak and see" (Appearance, Notifications,
- *     Privacy). Appearance is firmly in the second bucket — toggling
- *     dark mode and waiting for an explicit Save would feel broken.
- *   - PreferencesContext already does optimistic update + rollback on
- *     failure, so we don't need a save button OR a spinner per row.
- */
+// No Save button: PreferencesContext applies changes optimistically and rolls back on failure.
 
 const THEME_OPTIONS = [
   { value: 'light', label: 'Light', description: 'Always use the light theme.', icon: Sun },

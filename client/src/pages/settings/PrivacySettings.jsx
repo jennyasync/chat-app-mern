@@ -5,22 +5,7 @@ import toast from 'react-hot-toast';
 import ToggleSwitch from '../../components/common/ToggleSwitch.jsx';
 import { usePreferences } from '../../contexts/PreferencesContext.jsx';
 
-/**
- * PrivacySettings — visibility-affecting toggles.
- *
- * Both toggles are server-enforced (not just UI tricks):
- *   - `showOnlineStatus=false` masks `isOnline` and `lastSeenAt` in
- *     EVERY public projection (`getPublicProfile`, search results,
- *     conversation participant payloads). The client doesn't need to
- *     do anything special — the server simply stops shipping the data.
- *   - `showReadReceipts=false` is consumed by the message read-receipt
- *     pipeline so the user's reads don't generate `readBy` events that
- *     could be observed by the sender.
- *
- * No reload is needed after a flip; the next request naturally carries
- * the new behaviour.
- */
-
+// Both settings are enforced on the server, which stops sending presence and read receipts.
 const PrivacySettings = () => {
   const { preferences, updatePreference } = usePreferences();
   const [pending, setPending] = useState(null);
@@ -32,7 +17,7 @@ const PrivacySettings = () => {
       await updatePreference(path, value);
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Could not save your preference.';
+        err?.response?.data?.message || 'Could not save your preference';
       toast.error(message);
     } finally {
       setPending(null);

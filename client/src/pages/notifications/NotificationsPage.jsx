@@ -21,28 +21,6 @@ import { useNotifications } from '../../contexts/NotificationContext.jsx';
 import { listNotifications } from '../../api/notification.service.js';
 import { formatRelativeTime } from '../../utils/formatRelativeTime.js';
 
-/**
- * NotificationsPage — full inbox view at `/notifications`.
- *
- * Why a dedicated page (the dropdown already shows recent items):
- *   - The dropdown is a 20-item ring buffer; it cannot show history
- *     beyond the current session window. The page is the source of
- *     truth and uses the paginated REST endpoint.
- *   - Filters (`all`/`unread`) are page-only — they would clutter the
- *     dropdown which is intentionally a quick-glance surface.
- *
- * The page is read-mostly (we don't optimistically reorder rows when a
- * new socket event arrives — that would be jarring while the user is
- * scanning). Instead, the global unread badge updates in real time and
- * the user can hit "Refresh" to pull the latest page.
- *
- * SECURITY:
- *   - Notification text is server-generated and stored sanitized.
- *   - Navigation only ever uses internal React Router paths derived
- *     from `conversationId`; we never follow URLs from the notification
- *     payload.
- */
-
 const PAGE_SIZE = 20;
 
 const ICON_BY_TYPE = {
@@ -73,6 +51,7 @@ const NotificationsPage = () => {
   const [busyAll, setBusyAll] = useState(false);
   const [pendingId, setPendingId] = useState(null);
 
+  // Socket events only update the unread badge; new rows aren't inserted while the user is reading.
   const fetchPage = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
@@ -87,7 +66,7 @@ const NotificationsPage = () => {
       });
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Failed to load notifications.';
+        err?.response?.data?.message || 'Failed to load notifications';
       setState({
         loading: false,
         error: message,
@@ -109,8 +88,6 @@ const NotificationsPage = () => {
 
   const handleOpen = async (notification) => {
     if (!notification.isRead) {
-      // Optimistically reflect the read state on this page too — the
-      // shared context already updates the badge.
       setState((prev) => ({
         ...prev,
         items: prev.items.map((n) =>
@@ -118,7 +95,6 @@ const NotificationsPage = () => {
         ),
       }));
       markRead(notification._id).catch(() => {
-        /* Context self-heals; revert local row to keep UI honest. */
         setState((prev) => ({
           ...prev,
           items: prev.items.map((n) =>
@@ -127,6 +103,7 @@ const NotificationsPage = () => {
         }));
       });
     }
+    // Build the route from conversationId; never follow a URL from the payload.
     if (notification.conversationId) {
       navigate(`/chat/${notification.conversationId}`);
     }
@@ -142,7 +119,7 @@ const NotificationsPage = () => {
         items: prev.items.map((n) => ({ ...n, isRead: true })),
       }));
     } catch {
-      toast.error('Could not mark all as read.');
+      toast.error('Could not mark all as read');
     } finally {
       setBusyAll(false);
     }
@@ -159,7 +136,7 @@ const NotificationsPage = () => {
         total: Math.max(0, prev.total - 1),
       }));
     } catch {
-      toast.error('Could not dismiss notification.');
+      toast.error('Could not dismiss notification');
     } finally {
       setPendingId(null);
     }

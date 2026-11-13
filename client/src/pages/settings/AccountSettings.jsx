@@ -8,22 +8,6 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 import { changePassword, deleteAccount } from '../../api/auth.service.js';
 import { AUTH_RULES } from '../../utils/constants.js';
 
-/**
- * AccountSettings — password change + hard-delete.
- *
- * The two flows live here because they share a re-auth gate (current
- * password) and an "irreversible action" tone. Splitting them across
- * two routes would force users to learn two paths for one mental
- * concept ("account & security").
- *
- * Delete account flow (defence in depth):
- *   1. The user must type their *exact* username.
- *   2. They must enter their *current* password.
- *   3. They confirm one more time in a `ConfirmModal`.
- *   The server enforces (2) again on the wire (`deleteAccount`
- *   validator + bcrypt compare) — the client checks are UX-only.
- */
-
 const PASSWORD_MIN = AUTH_RULES.PASSWORD_MIN_LENGTH;
 const PASSWORD_REGEX = AUTH_RULES.PASSWORD_COMPLEXITY;
 
@@ -44,7 +28,6 @@ const validateNewPassword = (value, current) => {
 const AccountSettings = () => {
   const { user, logout } = useAuth();
 
-  /* ---------- Password change ---------- */
   const [pwForm, setPwForm] = useState({
     currentPassword: '',
     newPassword: '',
@@ -85,7 +68,7 @@ const AccountSettings = () => {
         currentPassword: pwForm.currentPassword,
         newPassword: pwForm.newPassword,
       });
-      toast.success('Password updated.');
+      toast.success('Password updated');
       setPwForm({
         currentPassword: '',
         newPassword: '',
@@ -93,14 +76,13 @@ const AccountSettings = () => {
       });
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Could not change password.';
+        err?.response?.data?.message || 'Could not change password';
       setPwError(message);
     } finally {
       setPwSubmitting(false);
     }
   };
 
-  /* ---------- Delete account ---------- */
   const [deleteForm, setDeleteForm] = useState({
     usernameConfirm: '',
     password: '',
@@ -125,16 +107,17 @@ const AccountSettings = () => {
   };
 
   const handleDeleteConfirm = async () => {
+    // The server checks the password again; the username/password gate here is just UX.
     try {
       await deleteAccount({ password: deleteForm.password });
-      toast.success('Your account has been deleted.');
+      toast.success('Your account has been deleted');
       setDeleteModalOpen(false);
       logout();
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Account deletion failed.';
+        err?.response?.data?.message || 'Account deletion failed';
       toast.error(message);
-      throw err; /* re-throw so ConfirmModal stays open for retry */
+      throw err; // keeps ConfirmModal open so the user can retry
     }
   };
 
@@ -149,7 +132,6 @@ const AccountSettings = () => {
         </p>
       </header>
 
-      {/* ---------- Password ---------- */}
       <section
         aria-labelledby="password-heading"
         className="rounded-xl border border-gray-200 p-5 dark:border-gray-800"
@@ -235,7 +217,6 @@ const AccountSettings = () => {
         </form>
       </section>
 
-      {/* ---------- Delete account ---------- */}
       <section
         aria-labelledby="delete-heading"
         className="rounded-xl border border-red-200 bg-red-50/50 p-5 dark:border-red-900/60 dark:bg-red-950/20"

@@ -7,28 +7,7 @@ import Spinner from '../../components/common/Spinner.jsx';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { ROUTES } from '../../utils/constants.js';
 
-/**
- * LoginPage — sign-in form for returning users.
- *
- * Why not use a form library?
- *   The flow is small (2 fields), state lives entirely in this
- *   component, and we'd have to wire its error model to our own
- *   `{ field, message }[]` shape anyway. Bare React + a `fieldErrors`
- *   map keeps the bundle smaller and the data flow trivial to audit.
- *
- * Error model:
- *   - `fieldErrors` mirrors the server's `{ field, message }[]` shape
- *     and is also where client-side checks land — both render through
- *     the same JSX so users can't tell where the validation came from.
- *   - `formError` is the top-of-form generic message used for 401s and
- *     network failures (anything that isn't tied to a specific input).
- *
- * SECURITY:
- *   On a 401 we ALWAYS show the same generic message regardless of
- *   whether the email exists. Confirming an email's existence here
- *   would let attackers enumerate accounts.
- */
-
+// Same message whether or not the email exists, so accounts can't be enumerated.
 const GENERIC_AUTH_ERROR = 'Invalid email or password';
 
 const LoginPage = () => {
@@ -46,17 +25,13 @@ const LoginPage = () => {
   const [formError, setFormError] = useState('');
 
   const redirectHint = useMemo(() => {
-    // ProtectedRoute stashes the original requested URL as a string in
-    // `state.from` so we can deep-link the user back to it after a
-    // successful sign-in.
+    // ProtectedRoute puts the originally requested URL in state.from.
     const from = location.state?.from;
     if (!from || typeof from !== 'string') return null;
     if (from.startsWith(ROUTES.LOGIN) || from.startsWith(ROUTES.REGISTER)) return null;
     return from;
   }, [location.state]);
 
-  // Clear any lingering error toasts when the user starts editing —
-  // stale red text alongside fresh input feels broken.
   useEffect(() => {
     if (formError) setFormError('');
   }, [email, password]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -83,20 +58,15 @@ const LoginPage = () => {
     setFieldErrors({});
     setFormError('');
     try {
-      // Forward the deep-link target into AuthContext so the post-auth
-      // navigation lands on the requested page in a single push instead
-      // of bouncing through `/chat` first (which was visible as a
-      // mid-load flash). `redirectHint` is already validated by the
-      // memo above so we can pass it through verbatim.
+      // Passing the target to login avoids a visible bounce through /chat first.
       await login(email.trim(), password, { redirectTo: redirectHint || undefined });
-      toast.success('Welcome back!');
+      toast.success('Signed in');
     } catch (error) {
       const status = error?.response?.status;
       const data = error?.response?.data;
 
       let nextFormError = '';
       if (status === 400 && Array.isArray(data?.errors)) {
-        // Field-level validation errors from express-validator.
         const next = {};
         for (const item of data.errors) {
           if (item?.field && item?.message) next[item.field] = item.message;
@@ -206,10 +176,6 @@ const LoginPage = () => {
           <div className="relative">
             <input
               id={passwordId}
-              // SECURITY: the input stays type="password" by default;
-              // toggling to "text" only happens via an explicit user
-              // gesture below. Browsers won't autofill or save form
-              // data from a hidden text field.
               type={showPassword ? 'text' : 'password'}
               name="password"
               value={password}

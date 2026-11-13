@@ -4,31 +4,7 @@ import { ArrowLeft, Compass, MessageCircle, MessagesSquare } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { ROUTES } from '../utils/constants.js';
 
-/**
- * NotFoundPage — terminal `*` route.
- *
- * Why we render it standalone (no layout):
- *   The `*` route fires for arbitrary URLs, including ones a guest
- *   reached via a stale deep-link. Forcing the user through the chat
- *   layout would mean rendering a sidebar that makes no sense in the
- *   guest context. A standalone screen is safe in both auth states.
- *
- * Auth-aware CTA:
- *   - Authed users get "Back to chat" so the recovery click drops them
- *     straight into the surface they were trying to reach.
- *   - Guests get "Go to sign in" — sending them to `/chat` would just
- *     bounce off `ProtectedRoute` and confuse the cause of the redirect.
- *
- * SECURITY:
- *   - The page never reflects the requested URL back to the user.
- *     Echoing `location.pathname` would let an attacker craft a link
- *     containing arbitrary text that renders as part of "our" UI
- *     (think phishing prompts).
- *   - The same component is returned for every unknown URL — including
- *     `/admin/<anything>` for non-admins. The server is the source of
- *     truth on whether a route exists; the client must not leak that
- *     `/admin/secret-thing` "would have" been a real page for an admin.
- */
+// The requested path is never echoed back, so a crafted link can't inject text into the page.
 
 const ILLUSTRATION_BUBBLES = [
   { id: 'a', side: 'left', dx: 'left-3', dy: 'top-2', size: 'h-7 w-12' },
@@ -50,7 +26,6 @@ const NotFoundPage = () => {
           aria-hidden="true"
           className="relative mx-auto mb-6 h-32 w-32"
         >
-          <div className="absolute inset-0 rounded-full bg-brand-500/10 blur-xl dark:bg-brand-400/10" />
           <div className="relative flex h-full w-full items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-800">
             <MessagesSquare
               className="h-12 w-12 text-brand-600 dark:text-brand-300"
@@ -72,10 +47,10 @@ const NotFoundPage = () => {
           </div>
         </div>
 
-        <p className="text-xs font-semibold tracking-wider text-brand-600 uppercase dark:text-brand-300">
+        <p className="text-sm font-medium text-brand-600 dark:text-brand-300">
           404
         </p>
-        <h1 className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
+        <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
           Page not found
         </h1>
         <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">

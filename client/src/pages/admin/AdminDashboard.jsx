@@ -21,28 +21,6 @@ import {
   listReports,
 } from '../../api/admin.service.js';
 
-/**
- * AdminDashboard — moderator landing page at `/admin/dashboard`.
- *
- * Two parallel fetches drive the page:
- *   1. `/admin/stats` for the eight metric tiles.
- *   2. `/admin/reports?status=pending&limit=5` for the recent-reports
- *      panel.
- * They run in parallel (single `Promise.all`) so the page paints in
- * one round-trip — sequential calls would double the perceived
- * latency for a screen the moderator opens dozens of times a day.
- *
- * State shape: a single `state` object instead of a handful of
- * `useState` hooks, so a refresh swap is atomic and we can never
- * paint half-stale numbers next to a fresh report list.
- *
- * SECURITY:
- *   - The page is reachable only via `<AdminRoute>`; the server
- *     also gates every endpoint by `protect + adminOnly`. The UI
- *     trusts neither — if both calls 403 we render an empty error
- *     state rather than crash.
- */
-
 const STAT_TILES = [
   {
     key: 'totalUsers',
@@ -104,6 +82,7 @@ const RECENT_REPORTS_LIMIT = 5;
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
+  // One state object so stats and reports always update together
   const [state, setState] = useState({
     loading: true,
     error: null,
@@ -126,7 +105,7 @@ const AdminDashboard = () => {
       });
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Failed to load dashboard.';
+        err?.response?.data?.message || 'Failed to load dashboard';
       setState({
         loading: false,
         error: message,
@@ -148,7 +127,7 @@ const AdminDashboard = () => {
             Admin dashboard
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Real-time platform health and the latest pending reports.
+            Platform stats and the latest pending reports.
           </p>
         </div>
         <button
@@ -225,12 +204,12 @@ const AdminDashboard = () => {
               <EmptyState
                 icon={Flag}
                 title="No pending reports"
-                description="All caught up — the queue is empty."
+                description="No pending reports."
               />
             ) : (
               <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
                 <table className="w-full table-fixed text-left">
-                  <thead className="bg-gray-50 text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:bg-gray-900/60 dark:text-gray-400">
+                  <thead className="bg-gray-50 text-xs font-medium text-gray-500 dark:bg-gray-900/60 dark:text-gray-400">
                     <tr>
                       <th className="w-32 px-3 py-2">Target</th>
                       <th className="px-3 py-2">Reason</th>

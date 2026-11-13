@@ -2,19 +2,6 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { Flag, LayoutDashboard, MessagesSquare, Users } from 'lucide-react';
 import clsx from 'clsx';
 
-/**
- * AdminLayout — wraps every `/admin/*` page in a moderator workspace.
- *
- * Desktop: vertical sidebar on the left with the four admin sections.
- * Mobile: sidebar collapses to a horizontally-scrollable tab bar at
- *         the top so the same routes remain reachable without giving
- *         up vertical real-estate to a permanent drawer.
- *
- * The container keeps the underlying `MainLayout` navbar visible
- * (this layout sits inside `MainLayout`), giving moderators one click
- * back to the chat surface or notifications at any time.
- */
-
 const NAV_ITEMS = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/admin/users', label: 'Users', icon: Users },
@@ -41,7 +28,6 @@ const tabLinkClass = ({ isActive }) =>
 const AdminLayout = () => {
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 md:flex-row md:gap-6 md:py-6">
-      {/* Mobile tab bar */}
       <nav
         aria-label="Admin sections (mobile)"
         className="scrollbar-thin -mx-4 flex gap-1 overflow-x-auto border-b border-gray-200 px-4 md:hidden dark:border-gray-800"
@@ -54,7 +40,6 @@ const AdminLayout = () => {
         ))}
       </nav>
 
-      {/* Desktop sidebar */}
       <aside className="hidden w-56 shrink-0 md:block">
         <nav aria-label="Admin sections" className="space-y-1">
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (

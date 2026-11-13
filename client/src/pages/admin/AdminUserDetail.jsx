@@ -30,24 +30,6 @@ import {
 } from '../../api/admin.service.js';
 import { formatRelativeTime } from '../../utils/formatRelativeTime.js';
 
-/**
- * AdminUserDetail — full profile view at `/admin/users/:id`.
- *
- * The page mirrors `AdminUsers` row actions in a side panel so an
- * admin opening a user from anywhere (a report target, a search
- * result link, deep-link from logs) lands on a screen with full
- * context AND the same set of moderator levers.
- *
- * Why we don't render "sent messages" / "conversations" stats:
- *   Those numbers would require additional admin endpoints that the
- *   server does not expose today. Showing fabricated zeros would be
- *   worse than showing nothing — when the server grows the surface
- *   we will populate the panel here in a separate change.
- *
- * Self-protection contract is identical to `AdminUsers` (server is
- * the authority; this UI just disables the levers that would 403).
- */
-
 const STATUS_VARIANT = {
   active: 'success',
   suspended: 'danger',
@@ -87,7 +69,7 @@ const AdminUserDetail = () => {
       });
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Failed to load user.';
+        err?.response?.data?.message || 'Failed to load user';
       setState({ loading: false, error: message, user: null });
     }
   }, [id]);
@@ -100,14 +82,13 @@ const AdminUserDetail = () => {
   const isSelf = Boolean(target && currentUser && target._id === currentUser._id);
   const isAdmin = target?.role === 'admin';
   const isSuspended = target?.status === 'suspended';
+  // The server rejects these too; disabling the buttons just avoids a 403
   const protectedTarget = isSelf || isAdmin;
   const protectedTooltip = isSelf
     ? SELF_TOOLTIP
     : isAdmin
       ? ADMIN_TARGET_TOOLTIP
       : undefined;
-
-  /* ---------- Action handlers (parallel to AdminUsers, simplified) ---------- */
 
   const handleSuspendToggle = () => {
     if (!target) return;
@@ -180,7 +161,7 @@ const AdminUserDetail = () => {
           setConfirm(null);
         } catch (err) {
           const message =
-            err?.response?.data?.message || 'Could not update role.';
+            err?.response?.data?.message || 'Could not update role';
           toast.error(message);
           throw err;
         } finally {
@@ -219,7 +200,7 @@ const AdminUserDetail = () => {
           navigate('/admin/users', { replace: true });
         } catch (err) {
           const message =
-            err?.response?.data?.message || 'Could not delete user.';
+            err?.response?.data?.message || 'Could not delete user';
           toast.error(message);
           throw err;
         } finally {
@@ -228,8 +209,6 @@ const AdminUserDetail = () => {
       },
     });
   };
-
-  /* ---------- Render ---------- */
 
   if (state.loading) {
     return (
@@ -386,7 +365,7 @@ const BackLink = () => (
 const DetailItem = ({ icon: Icon, label, value }) => (
   <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300">
     <Icon className="h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden="true" />
-    <span className="text-xs uppercase tracking-wide text-gray-400">
+    <span className="text-xs text-gray-400">
       {label}:
     </span>
     <span className="truncate text-sm font-medium text-gray-700 dark:text-gray-200">

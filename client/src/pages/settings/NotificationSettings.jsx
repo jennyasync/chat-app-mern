@@ -7,23 +7,6 @@ import { useNotifications } from '../../contexts/NotificationContext.jsx';
 import { usePreferences } from '../../contexts/PreferencesContext.jsx';
 import { playNotificationSound } from '../../utils/notificationSound.js';
 
-/**
- * NotificationSettings — browser notifications, sound, master mute.
- *
- * SECURITY / UX rules (mirrors STEP 31 spec):
- *   - The browser permission prompt is GATED behind an explicit user
- *     toggle. Calling `Notification.requestPermission()` on app load
- *     would burn the one-time prompt slot and land the user in
- *     "denied" forever on most browsers. We only ask when the user
- *     flips the switch on.
- *   - The "Send test notification" button is only shown when the
- *     permission is already granted, so a click can never silently
- *     turn into a permission prompt the user didn't expect.
- *   - The master mute (`muteAll`) does NOT toggle the underlying
- *     browser/sound prefs — it's an orthogonal kill switch. Re-enabling
- *     it later restores the user's previous fine-grained choices.
- */
-
 const NotificationSettings = () => {
   const { preferences, updatePreference } = usePreferences();
   const { notificationPermission, requestPermission } = useNotifications();
@@ -40,17 +23,18 @@ const NotificationSettings = () => {
       await updatePreference(path, value);
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Could not save your preference.';
+        err?.response?.data?.message || 'Could not save your preference';
       toast.error(message);
     } finally {
       setPending(null);
     }
   };
 
+  // Only ask for permission from this toggle: an unprompted ask on load usually ends up permanently denied.
   const handleBrowserToggle = async (next) => {
     if (next && notificationPermission !== 'granted') {
       if (notificationPermission === 'unsupported') {
-        toast.error('Your browser does not support notifications.');
+        toast.error('Your browser does not support notifications');
         return;
       }
       const result = await requestPermission();
@@ -80,7 +64,7 @@ const NotificationSettings = () => {
         playNotificationSound();
       }
     } catch {
-      toast.error('Could not show test notification.');
+      toast.error('Could not show test notification');
     }
   };
 
@@ -109,7 +93,6 @@ const NotificationSettings = () => {
         </p>
       </header>
 
-      {/* Master mute */}
       <section
         className={`rounded-xl border p-4 ${
           muteAll
@@ -119,7 +102,7 @@ const NotificationSettings = () => {
       >
         <ToggleSwitch
           label="Mute all notifications"
-          description="Master kill switch. Stops every toast, sound and browser alert. Per-app preferences below stay remembered."
+          description="Turns off every toast, sound and browser alert. The settings below are kept."
           checked={muteAll}
           onChange={(next) => handleSavePref('notifications.muteAll', next)}
           disabled={pending === 'notifications.muteAll'}
@@ -132,7 +115,6 @@ const NotificationSettings = () => {
         ) : null}
       </section>
 
-      {/* Browser */}
       <section className="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
         <div className="flex items-start gap-2">
           <Bell className="mt-0.5 h-4 w-4 text-gray-400" aria-hidden="true" />
@@ -168,7 +150,6 @@ const NotificationSettings = () => {
         </div>
       </section>
 
-      {/* Sound */}
       <section className="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
         <div className="flex items-start gap-2">
           <Volume2 className="mt-0.5 h-4 w-4 text-gray-400" aria-hidden="true" />

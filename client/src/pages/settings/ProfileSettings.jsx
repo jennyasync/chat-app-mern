@@ -11,26 +11,7 @@ import { updateProfile } from '../../api/auth.service.js';
 import { removeAvatar, uploadAvatar } from '../../api/upload.service.js';
 import { AUTH_RULES, PROFILE_RULES } from '../../utils/constants.js';
 
-/**
- * ProfileSettings — display name, bio and avatar.
- *
- * Mirroring the server contract (`PATCH /api/auth/profile` accepts
- * `displayName`, `bio`, `avatarUrl`, `avatarPublicId`) we ONLY send
- * fields the user has actually changed. That keeps the payload minimal
- * and avoids accidentally overwriting an avatar that was changed in
- * another tab while the user was editing their bio.
- *
- * Avatar upload is independent from the Save button:
- *   - Uploading writes to the user document immediately (the upload
- *     endpoint persists `avatarUrl`/`avatarPublicId` itself), so the
- *     navbar avatar updates the moment the upload resolves.
- *   - The local preview is set from a `URL.createObjectURL` blob while
- *     the upload is in flight so the user sees instant feedback.
- *
- * SECURITY: client-side type/size checks are UX-only — the server is
- * the authority (Multer whitelists JPEG/PNG/WEBP up to MAX_UPLOAD_SIZE_MB).
- */
-
+// Multer on the server enforces type and size too; this check just saves a round trip.
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 const ProfileSettings = () => {
@@ -45,15 +26,11 @@ const ProfileSettings = () => {
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  /* Reset the local form whenever the upstream user changes (e.g. a
-   * different account signs in on the same tab, or AuthContext refresh
-   * pulls a server-side update). */
   useEffect(() => {
     setDisplayName(user?.displayName ?? '');
     setBio(user?.bio ?? '');
   }, [user?.displayName, user?.bio]);
 
-  /* Revoke blob URLs on unmount / replacement to avoid leaks. */
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -85,11 +62,11 @@ const ProfileSettings = () => {
     if (!file) return;
 
     if (!ALLOWED_MIME.has(file.type)) {
-      toast.error('Please choose a JPEG, PNG or WEBP image.');
+      toast.error('Please choose a JPEG, PNG or WEBP image');
       return;
     }
     if (file.size > PROFILE_RULES.AVATAR_MAX_SIZE_MB * 1024 * 1024) {
-      toast.error(`Image must be smaller than ${PROFILE_RULES.AVATAR_MAX_SIZE_MB} MB.`);
+      toast.error(`Image must be smaller than ${PROFILE_RULES.AVATAR_MAX_SIZE_MB} MB`);
       return;
     }
 
@@ -103,11 +80,11 @@ const ProfileSettings = () => {
       const publicId = result?.data?.publicId;
       if (url) {
         updateUser({ avatarUrl: url, avatarPublicId: publicId ?? null });
-        toast.success('Avatar updated.');
+        toast.success('Avatar updated');
       }
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Avatar upload failed.';
+        err?.response?.data?.message || 'Avatar upload failed';
       toast.error(message);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
@@ -116,10 +93,6 @@ const ProfileSettings = () => {
     }
   };
 
-  /* Remove the persisted avatar AND the local preview. The dedicated
-   * server endpoint also destroys the Cloudinary asset so we don't leak
-   * orphaned blobs. We optimistically clear local state on success and
-   * fall back to a toast on failure. */
   const handleAvatarRemove = async () => {
     if (avatarRemoving) return;
     setAvatarRemoving(true);
@@ -130,11 +103,11 @@ const ProfileSettings = () => {
         setPreviewUrl(null);
       }
       updateUser({ avatarUrl: '', avatarPublicId: null });
-      toast.success('Avatar removed.');
+      toast.success('Avatar removed');
       setRemoveConfirmOpen(false);
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Could not remove avatar.';
+        err?.response?.data?.message || 'Could not remove avatar';
       toast.error(message);
       throw err; // keep the confirm modal open for retry
     } finally {
@@ -146,6 +119,7 @@ const ProfileSettings = () => {
     event.preventDefault();
     if (saving || !isDirty || displayNameError) return;
 
+    // Only send changed fields so we don't overwrite an edit made in another tab.
     const payload = {};
     if (trimmedDisplayName !== (user.displayName ?? '')) {
       payload.displayName = trimmedDisplayName;
@@ -164,10 +138,10 @@ const ProfileSettings = () => {
       } else {
         updateUser(payload);
       }
-      toast.success('Profile saved.');
+      toast.success('Profile saved');
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Could not save profile.';
+        err?.response?.data?.message || 'Could not save profile';
       toast.error(message);
     } finally {
       setSaving(false);
@@ -188,7 +162,6 @@ const ProfileSettings = () => {
         </p>
       </header>
 
-      {/* Avatar */}
       <section className="flex items-center gap-4">
         <div className="relative">
           <Avatar
@@ -254,13 +227,11 @@ const ProfileSettings = () => {
         </p>
       </ConfirmModal>
 
-      {/* Read-only identity */}
       <section className="grid gap-4 sm:grid-cols-2">
         <ReadOnlyField label="Username" value={`@${user.username}`} />
         <ReadOnlyField label="Email" value={user.email ?? ''} />
       </section>
 
-      {/* Editable */}
       <section className="space-y-4">
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">
@@ -297,7 +268,7 @@ const ProfileSettings = () => {
             }
             maxLength={PROFILE_RULES.BIO_MAX_LENGTH}
             rows={4}
-            placeholder="Tell people a little about yourself…"
+            placeholder="A short bio"
             className="block w-full resize-none rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <CharacterCounter

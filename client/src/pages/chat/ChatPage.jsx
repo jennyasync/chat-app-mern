@@ -23,39 +23,6 @@ import { useSocket } from '../../contexts/SocketContext.jsx';
 import * as conversationService from '../../api/conversation.service.js';
 import * as messageService from '../../api/message.service.js';
 
-/**
- * ChatPage — single conversation surface mounted at
- * `/chat/:conversationId`.
- *
- * Architectural responsibilities (the components below stay
- * presentational on purpose):
- *   - Resolve `:conversationId` to a populated conversation document
- *     (`conversationService.getConversation`) and the first page of
- *     messages (`messageService.getMessages`, limit=30).
- *   - Wire the live socket events for THIS conversation only:
- *       `message:new`, `message:edited`, `message:deleted`,
- *       `message:reactionUpdated`, `conversation:readBy`.
- *   - Drive the "active conversation" lifecycle for both the global
- *     notification suppression context AND the server-side viewer
- *     refcount (`conversation:open` / `conversation:close`).
- *   - Mark the conversation as read on mount AND whenever a new
- *     message arrives while the user is focused.
- *
- * Why this file owns its own message cache (instead of a context):
- *   The messages array is naturally scoped to this route. Hoisting it
- *   to a long-lived context would mean either dropping it on navigate
- *   (defeating the cache) or keeping every conversation's history in
- *   memory (a leak, especially with images). A per-mount cache is the
- *   simplest correct strategy.
- *
- * Realtime / REST handshake:
- *   The bottom REST `markAsRead` is fired on mount AND inside the
- *   `message:new` handler for new traffic that landed while the user
- *   was already focused. The corresponding `conversation:read` socket
- *   event is also emitted so the server can broadcast the
- *   `conversation:readBy` echo without waiting for the REST round-trip.
- */
-
 const idOf = (value) => (value && value._id ? String(value._id) : String(value ?? ''));
 
 const ChatPage = () => {
@@ -74,41 +41,27 @@ const ChatPage = () => {
 
   const currentUserId = user?._id ? String(user._id) : null;
 
-  /* ---------- Local cache for THIS conversation ---------- */
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState(null);
-  /* `replyTo` lives on the page (not the composer) so that the eventual
-   * "reply" affordance on `MessageBubble` (Step 29) only has to call
-   * `setReplyTo(message)` to wire the composer's quoted preview. */
   const [replyTo, setReplyTo] = useState(null);
-  /* Group-settings panel visibility — owned here so the panel can read
-   * the live `conversation` slice and ChatHeader stays a presentational
-   * trigger. */
   const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false);
 
-  /* Search-in-conversation state. Lives here (not in the bar) because
-   * the matches feed back into `MessagesList` via `highlightMessageId`,
-   * and we want a single source of truth for which match is "current". */
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchIndex, setSearchIndex] = useState(0);
 
   const listRef = useRef(null);
 
-  /* Refs let socket handlers (registered once per socket+conv pair) read
-   * the freshest messages array without forcing the listener subscription
-   * to churn — losing events between detach and reattach is the bug
-   * we're avoiding. */
+  // Lets handleLoadOlder read the latest messages without re-creating the callback.
   const messagesRef = useRef(messages);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  /* ---------- Reset state every time the conversation changes ---------- */
   useEffect(() => {
     setConversation(null);
     setMessages([]);
@@ -123,10 +76,7 @@ const ChatPage = () => {
     setSearchIndex(0);
   }, [conversationId]);
 
-  /* ---------- Initial fetch (conversation + first page) ----------
-   * Runs in parallel; either failure aborts the page with a toast.
-   * The `cancelled` guard prevents a stale response from a previous
-   * conversation from overwriting the new one's state. */
+  // `cancelled` stops a slow response for the previous conversation from overwriting this one.
   useEffect(() => {
     if (!conversationId) return undefined;
     let cancelled = false;
@@ -179,16 +129,7 @@ const ChatPage = () => {
     upsertConversation,
   ]);
 
-  /* ---------- Active-conversation lifecycle ----------
-   * Tells:
-   *   - NotificationContext to suppress in-app/native alerts for
-   *     messages in THIS conversation while it's focused.
-   *   - The server (via `conversation:open`) to suppress its own
-   *     `notification:new` fan-out. Critical so the user's other
-   *     devices stay quiet too.
-   *   - Resets the unread counter the moment the user opens the chat
-   *     (REST + socket equivalents — the socket call is the source of
-   *     truth, the REST is the fallback). */
+  // conversation:open tells the server to skip notifications for this chat while it is open.
   useEffect(() => {
     if (!conversationId) return undefined;
     setNotificationActive(conversationId);
@@ -197,9 +138,7 @@ const ChatPage = () => {
 
     emit('conversation:open', { conversationId });
     emit('conversation:read', { conversationId });
-    // REST fallback so the unread counter is reset even if the socket
-    // is disconnected. Errors here are non-fatal; we deliberately
-    // swallow them so the chat surface still works offline.
+    // REST fallback in case the socket is down; failures are ignored.
     conversationService.markAsRead(conversationId).catch(() => {});
 
     return () => {
@@ -219,10 +158,7 @@ const ChatPage = () => {
     setNotificationActive,
   ]);
 
-  /* ---------- Page focus / visibility re-read ----------
-   * If the user backgrounded the tab and comes back, re-mark the
-   * conversation as read so any unread bubbles that arrived while the
-   * tab was hidden don't linger as "new" on either side. */
+  // Re-mark as read when the tab comes back into view.
   useEffect(() => {
     if (!conversationId) return undefined;
     const handleVisibility = () => {
@@ -234,10 +170,7 @@ const ChatPage = () => {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [conversationId, emit]);
 
-  /* ---------- Realtime wiring ----------
-   * One subscription per (socket, conversationId) pair. We filter every
-   * payload by `conversationId` so cross-conversation events from the
-   * shared `socket` instance never pollute this view. */
+  // The socket is shared across conversations, so every handler filters by conversationId.
   useEffect(() => {
     if (!socket || !conversationId) return undefined;
 
@@ -247,10 +180,7 @@ const ChatPage = () => {
       setMessages((prev) => {
         const tempId = incoming.clientTempId;
         if (tempId) {
-          // Reconcile with any optimistic placeholder the composer
-          // pushed in (Step 28). We MERGE the optimistic flags into the
-          // server payload so a retry-on-failure path can flip _pending
-          // back if needed.
+          // Replace the optimistic placeholder the composer added.
           const replaceIdx = prev.findIndex(
             (m) => m.clientTempId && m.clientTempId === tempId,
           );
@@ -261,16 +191,13 @@ const ChatPage = () => {
           }
         }
 
-        // Plain dedupe by server _id (the originating REST controller
-        // also broadcasts via socket; our originating tab dedupes here).
+        // The REST send path also broadcasts, so the sending tab can see its own message twice.
         if (incoming._id && prev.some((m) => m._id === incoming._id)) {
           return prev;
         }
         return [...prev, incoming];
       });
 
-      // Mark as read whenever a new message arrives while we're focused
-      // on the conversation, but skip our own messages.
       const senderId = idOf(incoming.sender);
       if (senderId !== currentUserId) {
         emit('conversation:read', { conversationId });
@@ -288,12 +215,10 @@ const ChatPage = () => {
     const handleMessageDeleted = ({ conversationId: cid, messageId, for: scope }) => {
       if (!cid || String(cid) !== conversationId) return;
       if (scope === 'self') {
-        // Per-user tombstone — drop the row entirely from this view.
         setMessages((prev) => prev.filter((m) => m._id !== messageId));
         return;
       }
-      // 'everyone' — keep the row but flip it to the deleted state so
-      // the bubble can render "This message was deleted" in place.
+      // Keep the row so the bubble can show "This message was deleted".
       setMessages((prev) =>
         prev.map((m) =>
           m._id === messageId
@@ -312,8 +237,6 @@ const ChatPage = () => {
 
     const handleReadBy = ({ conversationId: cid, userId, readAt }) => {
       if (!cid || String(cid) !== conversationId) return;
-      // Patch every own message so the ticks upgrade to ✓✓ for the new
-      // reader. We avoid duplicate readBy entries for the same user.
       setMessages((prev) =>
         prev.map((m) => {
           if (idOf(m.sender) !== currentUserId) return m;
@@ -339,20 +262,7 @@ const ChatPage = () => {
     };
   }, [conversationId, currentUserId, emit, socket]);
 
-  /* ---------- Group-lifecycle wiring ----------
-   * STEP 30 wires the open `GroupSettingsModal` against the live
-   * conversation slice. When ANOTHER admin / member triggers a change,
-   * the server fan-out lets this surface stay correct without forcing
-   * a re-fetch:
-   *   - `group:updated` patches name/avatar in place.
-   *   - `group:adminChanged` patches the `admins` array, which flips
-   *     role badges (and may downgrade the current viewer's controls).
-   *   - `group:memberAdded` / `group:memberRemoved` need fresh
-   *     populated participant docs; we re-fetch the conversation in
-   *     those cases instead of guessing populated fields client-side.
-   *   - `group:youWereRemoved` is handled by the Sidebar — it removes
-   *     the conversation and navigates us out, so no extra wiring here.
-   */
+  // group:youWereRemoved is handled in the Sidebar, which navigates away.
   useEffect(() => {
     if (!socket || !conversationId) return undefined;
 
@@ -384,6 +294,7 @@ const ChatPage = () => {
       });
     };
 
+    // Refetch instead of patching, since the new member needs populated user fields.
     const handleMembershipChange = async ({ conversationId: cid }) => {
       if (!cid || String(cid) !== conversationId) return;
       try {
@@ -391,8 +302,7 @@ const ChatPage = () => {
         const fresh = result?.data;
         if (fresh) setConversation(fresh);
       } catch {
-        // Best-effort refresh — a transient failure simply means the
-        // panel will look slightly stale until the next mutation.
+        // best effort, the panel catches up on the next change
       }
     };
 
@@ -409,18 +319,10 @@ const ChatPage = () => {
     };
   }, [conversationId, socket]);
 
-  /* ---------- Optimistic-send wiring (consumed by MessageComposer) ----------
-   * We keep these helpers here (rather than passing `setMessages` down)
-   * so the composer's prop surface stays narrow and so future
-   * consumers — e.g. a "retry failed message" button on the bubble —
-   * can call the same primitives without re-implementing the dedupe
-   * rules. */
   const handleOptimisticAdd = useCallback((message) => {
     if (!message || !message.clientTempId) return;
     setMessages((prev) => {
-      // Defensive: a duplicate clientTempId would only happen with a
-      // double-submit; the second one wins so the older spinner can't
-      // get stranded.
+      // On a double submit the newer copy wins so no spinner gets stuck.
       const filtered = prev.filter(
         (m) => m.clientTempId !== message.clientTempId,
       );
@@ -436,23 +338,11 @@ const ChatPage = () => {
   }, []);
 
   const handleAfterSend = useCallback(() => {
-    // The composer fires this immediately after dispatching the
-    // optimistic bubble. Snap the timeline to the bottom so the user
-    // always sees their own message land, regardless of where they
-    // were scrolled before hitting Send.
     listRef.current?.scrollToBottom?.({ behavior: 'smooth' });
   }, []);
 
   const handleCancelReply = useCallback(() => setReplyTo(null), []);
 
-  /* ---------- Group settings modal wiring ----------
-   * `handleConversationUpdated` is the modal's writeback channel:
-   * each successful admin action on the server returns the updated
-   * conversation document; we patch local state here so the
-   * `ChatHeader` / `MessagesList` / modal itself all reflect the new
-   * shape without waiting for the broadcast echo. The list-level
-   * `upsertConversation` is handled inside the modal so the sidebar
-   * stays consistent even if this page is later refactored away. */
   const handleOpenGroupSettings = useCallback(() => {
     setIsGroupSettingsOpen(true);
   }, []);
@@ -466,18 +356,7 @@ const ChatPage = () => {
     setConversation((prev) => (prev ? { ...prev, ...updated } : updated));
   }, []);
 
-  /* ---------- Bubble action wiring (Step 29) ----------
-   * These callbacks are passed down to MessagesList → MessageBubble.
-   * They share the same socket-first / REST-fallback pattern as the
-   * composer so a brief disconnect never blocks the interaction.
-   *
-   * Local-state updates are deliberately conservative: we mutate only
-   * what the server response confirms, and let the broadcast echoes
-   * (`message:edited`, `message:deleted`, `message:reactionUpdated`)
-   * keep cross-tab state in sync.
-   */
-
-  /** Promisified socket emit with an ack timeout. */
+  // Message actions try the socket first and fall back to REST only on disconnect or timeout.
   const emitWithAck = useCallback(
     (event, payload, { timeoutMs = 6000 } = {}) =>
       new Promise((resolve, reject) => {
@@ -562,9 +441,7 @@ const ChatPage = () => {
           await messageService.deleteMessage(String(message._id), { scope });
         }
 
-        // Apply the local mutation immediately. The server's broadcast
-        // excludes the originating socket, so this is the only source
-        // of truth on the originating tab.
+        // The server broadcast skips the sender's socket, so update locally.
         if (scope === 'self') {
           setMessages((prev) => prev.filter((m) => m._id !== message._id));
         } else {
@@ -621,11 +498,7 @@ const ChatPage = () => {
     [emitWithAck],
   );
 
-  /**
-   * Retry a previously-failed optimistic send. Reuses the original
-   * `clientTempId` so cross-tab dedupe still works once the server
-   * accepts the message.
-   */
+  // Reuses the original clientTempId so the server echo still replaces the failed bubble.
   const handleRetryMessage = useCallback(
     async (message) => {
       const clientTempId = message?.clientTempId;
@@ -693,10 +566,7 @@ const ChatPage = () => {
     [conversationId, emitWithAck],
   );
 
-  /* ---------- Composer disabled-state derivation ----------
-   * Mirrors the server's write-side guards so the textarea reflects
-   * reality before the user types into it. The server is still the
-   * authority — these flags are UX hints. */
+  // UI hint only, the server enforces the same rules.
   const composerDisabled =
     !conversationId ||
     isLoadingInitial ||
@@ -706,7 +576,6 @@ const ChatPage = () => {
     ? 'This conversation is no longer active.'
     : '';
 
-  /* ---------- Older-page fetch (called by MessagesList sentinel) ---------- */
   const handleLoadOlder = useCallback(async () => {
     if (!conversationId || isLoadingOlder || !hasMore) return;
     const oldest = messagesRef.current[0];
@@ -722,9 +591,7 @@ const ChatPage = () => {
       const more = Boolean(result?.data?.hasMore);
       setMessages((prev) => {
         if (items.length === 0) return prev;
-        // Server sends OLDER messages in chronological order; prepend
-        // and dedupe defensively against any overlap from concurrent
-        // socket events.
+        // Dedupe in case a socket event already added one of these.
         const seen = new Set(prev.map((m) => m._id).filter(Boolean));
         const fresh = items.filter((m) => !m._id || !seen.has(m._id));
         return [...fresh, ...prev];
@@ -737,22 +604,13 @@ const ChatPage = () => {
     }
   }, [conversationId, hasMore, isLoadingOlder]);
 
-  /* ---------- Search-in-conversation wiring ----------
-   * Matches are recomputed locally whenever messages or the query
-   * change. We deliberately keep this client-side: the affordance
-   * scans only what's already on screen, which keeps results aligned
-   * with what the user can actually see (no "match in an unloaded
-   * older page" confusion). */
+  // Search only covers messages already loaded on screen.
   const searchMatchIds = useMemo(
     () => collectMatches(messages, searchQuery),
     [messages, searchQuery],
   );
 
-  /* Clamp the active index so a shrinking match list (because the user
-   * typed more characters or messages were deleted) never points past
-   * the end. We use an effect, not a memo, because the value is owned
-   * by `searchIndex` state — collapsing this into a derived value would
-   * lose the "user manually clicked next" intent. */
+  // Keep the index in range when the match list shrinks.
   useEffect(() => {
     if (searchMatchIds.length === 0) {
       if (searchIndex !== 0) setSearchIndex(0);
@@ -780,8 +638,6 @@ const ChatPage = () => {
 
   const handleSearchQueryChange = useCallback((next) => {
     setSearchQuery(next);
-    // Reset to the FIRST match on every keystroke so the user always
-    // sees the top-most hit before navigating with ↑/↓.
     setSearchIndex(0);
   }, []);
 
@@ -799,7 +655,6 @@ const ChatPage = () => {
     });
   }, [searchMatchIds.length]);
 
-  /* ---------- Typing users for THIS conversation ---------- */
   const typingUsers = useMemo(() => {
     if (!conversationId) return [];
     const ids = typingByConversation.get(conversationId);
@@ -817,7 +672,6 @@ const ChatPage = () => {
     return list;
   }, [conversationId, conversation, currentUserId, typingByConversation]);
 
-  /* ---------- Render ---------- */
   if (error && !conversation && !isLoadingInitial) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">

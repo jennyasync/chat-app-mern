@@ -17,37 +17,12 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useDebounce } from '../../hooks/useDebounce.js';
 import { AUTH_RULES, ROUTES } from '../../utils/constants.js';
 
-/**
- * RegisterPage — sign-up form.
- *
- * Field semantics mirror the server-side validators in
- * `server/validators/auth.validator.js`. Client checks here are UX
- * sugar only — the server is the authority and will reject a payload
- * that slipped past us.
- *
- * Username "availability" hint:
- *   The public API does NOT expose a username-existence endpoint on
- *   purpose (account enumeration risk + rate-limiting complexity for
- *   guests). The hint we render is therefore a FORMAT check only —
- *   "looks valid" rather than "is free". An actually-taken username
- *   surfaces as a 409 conflict on submit, with the SAME generic copy
- *   we use for email collisions.
- *
- * Password strength meter:
- *   Three-step indicator (length → letters+numbers → "strong" length
- *   bonus) intended to nudge users toward better passwords without
- *   blocking submission as long as the server's minimum is met.
- *
- * SECURITY:
- *   - Password input stays type="password" by default; toggling to
- *     plaintext requires an explicit user gesture.
- *   - Neither password nor confirmation is logged, persisted, or
- *     emitted outside this component's local state.
- */
+// Client checks mirror server/validators/auth.validator.js; the server still has the final say.
 
 const GENERIC_CONFLICT_ERROR =
   'That email or username is unavailable. Please try a different one.';
 
+// Format check only. There is no "is this username taken" endpoint, to avoid account enumeration.
 const usernameFormatHint = (value) => {
   if (!value) return null;
   if (value.length < AUTH_RULES.USERNAME_MIN_LENGTH) {
@@ -90,10 +65,7 @@ const RegisterPage = () => {
   const location = useLocation();
 
   const redirectHint = useMemo(() => {
-    // Honour the same `state.from` deep-link hint that LoginPage uses
-    // so a user who lands on /register from a guarded URL ends up back
-    // on that URL after their first sign-up. Guards against bouncing
-    // through an auth route (which would re-trigger the `from` chain).
+    // Same state.from deep link as LoginPage; ignore auth routes so we don't loop.
     const from = location.state?.from;
     if (!from || typeof from !== 'string') return null;
     if (from.startsWith(ROUTES.LOGIN) || from.startsWith(ROUTES.REGISTER)) {
@@ -134,9 +106,6 @@ const RegisterPage = () => {
   const passwordsMatch =
     form.confirmPassword.length === 0 || form.password === form.confirmPassword;
 
-  // Wipe the global form error as soon as the user starts editing
-  // anything — keeping a stale red banner above a freshly-typed field
-  // feels broken.
   useEffect(() => {
     if (formError) setFormError('');
   }, [form]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -220,7 +189,7 @@ const RegisterPage = () => {
         },
         { redirectTo: redirectHint || undefined },
       );
-      toast.success(`Welcome, ${form.displayName.trim()}!`);
+      toast.success('Account created');
     } catch (error) {
       const status = error?.response?.status;
       const data = error?.response?.data;
@@ -234,8 +203,7 @@ const RegisterPage = () => {
         setFieldErrors(next);
         nextFormError = data.message || 'Please fix the highlighted fields';
       } else if (status === 409) {
-        // Generic copy by design — never reveal which of email/username
-        // is taken (account enumeration).
+        // Don't reveal which of email/username is taken (account enumeration).
         nextFormError = GENERIC_CONFLICT_ERROR;
       } else if (status === 429) {
         nextFormError = 'Too many attempts. Please try again in a moment.';
@@ -290,7 +258,6 @@ const RegisterPage = () => {
           </div>
         ) : null}
 
-        {/* Username */}
         <div className="space-y-1.5">
           <label
             htmlFor={usernameId}
@@ -365,7 +332,6 @@ const RegisterPage = () => {
           )}
         </div>
 
-        {/* Display name */}
         <div className="space-y-1.5">
           <label
             htmlFor={displayNameId}
@@ -406,7 +372,6 @@ const RegisterPage = () => {
           ) : null}
         </div>
 
-        {/* Email */}
         <div className="space-y-1.5">
           <label
             htmlFor={emailId}
@@ -440,7 +405,6 @@ const RegisterPage = () => {
           ) : null}
         </div>
 
-        {/* Password + strength meter */}
         <div className="space-y-1.5">
           <label
             htmlFor={passwordId}
@@ -495,7 +459,7 @@ const RegisterPage = () => {
                 aria-label="Password strength"
               >
                 <div
-                  className={`h-full transition-all ${strength.color}`}
+                  className={`h-full transition-[width] ${strength.color}`}
                   style={{ width: `${strength.percent}%` }}
                 />
               </div>
@@ -533,7 +497,6 @@ const RegisterPage = () => {
           ) : null}
         </div>
 
-        {/* Confirm password */}
         <div className="space-y-1.5">
           <label
             htmlFor={confirmId}

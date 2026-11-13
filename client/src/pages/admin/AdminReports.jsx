@@ -27,36 +27,8 @@ import {
 } from '../../api/admin.service.js';
 import { formatRelativeTime } from '../../utils/formatRelativeTime.js';
 
-/**
- * AdminReports — moderator queue at `/admin/reports`.
- *
- * Two-pane behaviour:
- *   - The table is the persistent list (filterable, paginated).
- *   - Clicking a row opens a `<Modal>` populated by `getReport`,
- *     which returns both the report row AND the polymorphic target
- *     (user / message / conversation). We don't optimistically
- *     reuse the row data because the table omits the long
- *     description and the populated target.
- *
- * Action mapping (status enums match `REPORT_STATUSES` on the server):
- *   - "Dismiss"           → status: dismissed
- *   - "Mark reviewed"     → status: reviewed
- *   - "Take action"       → status: actionTaken + a side-effect:
- *                              user report    → suspend the reported user
- *                              message report → force-delete the message
- *                              conversation   → status only (no destructive
- *                                                action surfaced here; admins
- *                                                can dive into the conversation
- *                                                via AdminMessages if needed)
- *   `reviewNote` is sanitised + length-capped server-side; we mirror
- *   the cap here to give the user a live counter.
- *
- * Deep-link: the dashboard passes `?focus=<reportId>` to auto-open the
- * modal for a specific report. We strip the param after opening so a
- * subsequent close + back-navigation doesn't reopen it.
- */
-
 const PAGE_SIZE = 20;
+// Server also caps reviewNote at this length
 const REVIEW_NOTE_MAX = 500;
 
 const STATUS_FILTER_OPTIONS = [
@@ -103,7 +75,6 @@ const AdminReports = () => {
   const [reviewNote, setReviewNote] = useState('');
   const [reviewBusy, setReviewBusy] = useState(null);
 
-  /* Reset to page 1 on filter changes (mirrors AdminUsers). */
   useEffect(() => {
     setPage(1);
   }, [filters.status, filters.targetType]);
@@ -128,7 +99,7 @@ const AdminReports = () => {
       });
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Failed to load reports.';
+        err?.response?.data?.message || 'Failed to load reports';
       setState({ ...initialState, loading: false, error: message });
     }
   }, [filters.status, filters.targetType, page]);
@@ -137,8 +108,7 @@ const AdminReports = () => {
     fetchReports();
   }, [fetchReports]);
 
-  /* ---------- Detail open / close ---------- */
-
+  // getReport is needed because the list rows omit the description and populated target
   const openReport = useCallback(
     async (reportId) => {
       if (!reportId) return;
@@ -152,7 +122,7 @@ const AdminReports = () => {
         setReviewNote(result?.data?.report?.reviewNote || '');
       } catch (err) {
         const message =
-          err?.response?.data?.message || 'Failed to load report.';
+          err?.response?.data?.message || 'Failed to load report';
         toast.error(message);
         setActiveReportId(null);
       } finally {
@@ -167,6 +137,7 @@ const AdminReports = () => {
     setActiveReportId(null);
     setActiveReport(null);
     setReviewNote('');
+    // Drop ?focus so going back doesn't reopen the modal
     if (searchParams.get('focus')) {
       const next = new URLSearchParams(searchParams);
       next.delete('focus');
@@ -174,7 +145,7 @@ const AdminReports = () => {
     }
   }, [reviewBusy, searchParams, setSearchParams]);
 
-  /* Auto-open from `?focus=<id>` deep-link. */
+  // The dashboard links here with ?focus=<reportId>
   useEffect(() => {
     const focusId = searchParams.get('focus');
     if (focusId && focusId !== activeReportId) {
@@ -182,8 +153,6 @@ const AdminReports = () => {
     }
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [searchParams]);
-
-  /* ---------- Review actions ---------- */
 
   const replaceReportInList = useCallback((reportId, patch) => {
     setState((prev) => ({
@@ -218,7 +187,7 @@ const AdminReports = () => {
         closeReport();
       } catch (err) {
         const message =
-          err?.response?.data?.message || 'Could not update report.';
+          err?.response?.data?.message || 'Could not update report';
         toast.error(message);
       } finally {
         setReviewBusy(null);
@@ -226,8 +195,6 @@ const AdminReports = () => {
     },
     [activeReport, reviewNote, replaceReportInList, closeReport],
   );
-
-  /* ---------- Derived ---------- */
 
   const summary = useMemo(() => {
     if (state.loading) return 'Loading reports…';
@@ -325,7 +292,7 @@ const AdminReports = () => {
       ) : (
         <div className="scrollbar-thin overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800">
           <table className="w-full min-w-[640px] text-left">
-            <thead className="bg-gray-50 text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:bg-gray-900/60 dark:text-gray-400">
+            <thead className="bg-gray-50 text-xs font-medium text-gray-500 dark:bg-gray-900/60 dark:text-gray-400">
               <tr>
                 <th className="w-32 px-3 py-2">Target</th>
                 <th className="px-3 py-2">Reason</th>
@@ -420,8 +387,6 @@ const AdminReports = () => {
     </div>
   );
 };
-
-/* -------------------- Detail modal -------------------- */
 
 const STATUS_LABEL = {
   pending: 'Pending',
@@ -542,7 +507,7 @@ const ReportDetailModal = ({
 
           {report.description ? (
             <section>
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <h3 className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
                 Reporter description
               </h3>
               <p className="rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:bg-gray-900/60 dark:text-gray-200">
@@ -552,14 +517,14 @@ const ReportDetailModal = ({
           ) : null}
 
           <section>
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            <h3 className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
               Reporter
             </h3>
             <ReporterChip user={report.reporter} />
           </section>
 
           <section>
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            <h3 className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
               Reported {report.targetType}
             </h3>
             <TargetPreview type={report.targetType} target={target} />
@@ -567,7 +532,7 @@ const ReportDetailModal = ({
 
           <section>
             <label className="block">
-              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
                 Review note (optional)
               </span>
               <textarea
@@ -580,7 +545,7 @@ const ReportDetailModal = ({
                 rows={3}
                 maxLength={REVIEW_NOTE_MAX}
                 disabled={Boolean(reviewBusy)}
-                placeholder="Internal note for the audit log…"
+                placeholder="Internal note"
                 className="w-full resize-none rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               />
               <CharacterCounter
@@ -620,13 +585,6 @@ const ReporterChip = ({ user }) => {
   );
 };
 
-/**
- * `auditHref` derives the deep-link admins use to jump into the audit
- * window for the reported message/conversation. We keep the logic local
- * to the preview because only this component knows the `target` shape
- * for each `targetType` — pushing it up to the modal would force the
- * caller to re-discriminate on type.
- */
 const auditHrefForTarget = (type, target) => {
   if (!target) return null;
   if (type === 'message' && target.conversationId) {

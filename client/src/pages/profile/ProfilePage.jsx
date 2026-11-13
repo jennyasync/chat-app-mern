@@ -21,27 +21,6 @@ import { useSocket } from '../../contexts/SocketContext.jsx';
 import { getProfile, blockUser, unblockUser } from '../../api/user.service.js';
 import { createDirect } from '../../api/conversation.service.js';
 
-/**
- * ProfilePage — public profile at `/u/:username`.
- *
- * Two viewer modes co-exist on the same URL:
- *   - Self ("isSelf"): primary CTA is "Edit profile" → /settings/profile.
- *   - Other: primary CTA is "Send message" (creates/opens a direct
- *     conversation), with secondary actions for Block/Unblock and
- *     Report.
- *
- * SECURITY:
- *   - Email is never rendered here; the public projection on the
- *     server (`PUBLIC_USER_PROJECTION`) doesn't include it but we also
- *     guard at the call site so a future server change can't leak PII.
- *   - The page hides the Block/Unblock/Report buttons for self so the
- *     user can't accidentally try to block themselves (the API would
- *     reject it but the UI shouldn't tempt the click in the first
- *     place).
- *   - 404 / blocked / suspended targets return the same EmptyState so
- *     the URL doesn't disclose which of those conditions applies.
- */
-
 const formatJoinDate = (input) => {
   if (!input) return '';
   const date = new Date(input);
@@ -86,7 +65,7 @@ const ProfilePage = () => {
         error:
           status === 404
             ? 'not_found'
-            : err?.response?.data?.message || 'Failed to load profile.',
+            : err?.response?.data?.message || 'Failed to load profile',
         user: null,
         relationship: null,
       });
@@ -104,8 +83,6 @@ const ProfilePage = () => {
     ? onlineUserIds?.has?.(String(targetUser._id)) || Boolean(targetUser.isOnline)
     : false;
 
-  /* ---------- Actions ---------- */
-
   const handleSendMessage = async () => {
     if (!targetUser || actionInFlight) return;
     setActionInFlight(true);
@@ -119,7 +96,7 @@ const ProfilePage = () => {
       }
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Could not start the conversation.';
+        err?.response?.data?.message || 'Could not start the conversation';
       toast.error(message);
     } finally {
       setActionInFlight(false);
@@ -131,11 +108,9 @@ const ProfilePage = () => {
     setActionInFlight(true);
     try {
       await blockUser(targetUser._id);
-      toast.success(`${targetUser.displayName || targetUser.username} blocked.`);
+      toast.success(`${targetUser.displayName || targetUser.username} blocked`);
 
-      /* Mirror the server-side mutation in the local viewer cache so the
-       * navbar avatar dropdown / other surfaces immediately reflect the
-       * change without waiting for a `/auth/me` round-trip. */
+      // Update the cached viewer too so other screens see the block without refetching /auth/me.
       if (viewer) {
         updateUser((prev) => {
           const next = { ...prev };
@@ -163,7 +138,7 @@ const ProfilePage = () => {
       }));
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Could not block user.';
+        err?.response?.data?.message || 'Could not block user';
       toast.error(message);
     } finally {
       setActionInFlight(false);
@@ -175,7 +150,7 @@ const ProfilePage = () => {
     setActionInFlight(true);
     try {
       await unblockUser(targetUser._id);
-      toast.success(`${targetUser.displayName || targetUser.username} unblocked.`);
+      toast.success(`${targetUser.displayName || targetUser.username} unblocked`);
       if (viewer) {
         updateUser((prev) => {
           const next = { ...prev };
@@ -195,19 +170,18 @@ const ProfilePage = () => {
       }));
     } catch (err) {
       const message =
-        err?.response?.data?.message || 'Could not unblock user.';
+        err?.response?.data?.message || 'Could not unblock user';
       toast.error(message);
     } finally {
       setActionInFlight(false);
     }
   };
 
-  /* ---------- Render branches ---------- */
-
   if (state.loading) {
     return <ProfileSkeleton />;
   }
 
+  // Missing, blocked and suspended accounts all look the same so the page doesn't reveal which.
   if (state.error || !targetUser) {
     return (
       <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
@@ -231,13 +205,8 @@ const ProfilePage = () => {
     <>
       <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
         <article className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-          {/* Banner — hosts the avatar + identity overlay. Height is sized
-           * so avatar (h-20) plus the surrounding ring fits comfortably
-           * inside without spilling past the bottom edge. */}
-          <div className="relative h-40 bg-linear-to-r from-brand-500 via-brand-600 to-brand-700 sm:h-48 dark:from-brand-700 dark:via-brand-800 dark:to-brand-900">
+          <div className="relative h-40 bg-brand-600 sm:h-48 dark:bg-brand-800">
             <div className="absolute inset-x-5 bottom-4 flex items-center gap-4 sm:inset-x-8 sm:bottom-5">
-              {/* Translucent ring tint blends into the gradient instead of
-               * punching a hard white halo through it. */}
               <div className="rounded-full ring-4 ring-white/40 dark:ring-white/20">
                 <Avatar
                   src={targetUser.avatarUrl}
@@ -248,7 +217,7 @@ const ProfilePage = () => {
                 />
               </div>
               <div className="min-w-0">
-                <h1 className="truncate text-xl font-semibold text-white drop-shadow-sm sm:text-2xl">
+                <h1 className="truncate text-xl font-semibold text-white sm:text-2xl">
                   {targetUser.displayName || targetUser.username}
                 </h1>
                 <p className="truncate text-sm text-white/80">
@@ -258,8 +227,6 @@ const ProfilePage = () => {
             </div>
           </div>
 
-          {/* Dark content body — actions sit directly below the banner,
-           * bio + meta follow underneath. */}
           <div className="px-5 pt-4 pb-6 sm:px-8 sm:pt-5 sm:pb-8">
             <div className="flex flex-wrap items-center gap-2">
               {isSelf ? (
@@ -315,7 +282,6 @@ const ProfilePage = () => {
               )}
             </div>
 
-            {/* Bio + meta */}
             <div className="mt-5 space-y-4">
               {targetUser.bio ? (
                 <p className="text-sm whitespace-pre-line text-gray-700 dark:text-gray-200">

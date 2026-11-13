@@ -23,35 +23,8 @@ import {
 } from '../../api/admin.service.js';
 import { formatRelativeTime } from '../../utils/formatRelativeTime.js';
 
-/**
- * AdminMessages — moderator tool at `/admin/messages`.
- *
- * Why a "load by conversation id" tool instead of a global search box:
- *   The server intentionally exposes only a per-conversation audit
- *   endpoint (`/admin/conversations/:id/messages`) — every read is
- *   appended to `AdminAuditLog`, so admins cannot covertly browse
- *   private chats. A platform-wide message search would defeat that
- *   audit trail and turn the panel into a discovery tool. We
- *   compromise with an in-page text/sender filter that runs on the
- *   already-loaded page so admins can find what they need WITHIN the
- *   audit window without escaping it.
- *
- * Force-delete contract:
- *   - The same `forceDeleteMessage` endpoint admins call from the
- *     reports modal. The server emits `message:deleted` to all
- *     participants so their UIs redact in real time — we don't
- *     need to manually broadcast.
- *   - Optimistically marks the row as `deletedFor: 'everyone'` and
- *     clears its `text` / `imageUrl` so the redaction renders without
- *     waiting for a refetch.
- *
- * Deep-link:
- *   - `?id=<conversationId>` auto-loads the conversation. Other admin
- *     surfaces (reports modal, dashboard) link to this URL so a refresh
- *     never loses the audit context, and direct sharing of the URL
- *     between moderators is safe (every read still hits the audit log).
- */
-
+// No global message search on purpose: the server only allows reads per
+// conversation so each one is written to the admin audit log.
 const PAGE_SIZE = 30;
 const CONVERSATION_ID_RE = /^[a-f0-9]{24}$/i;
 
@@ -79,8 +52,7 @@ const AdminMessages = () => {
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const [confirm, setConfirm] = useState(null);
 
-  /* Keep the URL in sync with the active conversation so a refresh
-   * preserves context and the URL can be shared between moderators. */
+  // Keep ?id in the URL so a refresh or shared link reopens the same conversation
   useEffect(() => {
     const current = searchParams.get('id') ?? '';
     if (activeConversationId === current) return;
@@ -93,8 +65,7 @@ const AdminMessages = () => {
     setSearchParams(next, { replace: true });
   }, [activeConversationId, searchParams, setSearchParams]);
 
-  /* React to external URL changes (e.g. a moderator clicks an
-   * "Audit conversation" link inside the reports modal). */
+  // Handles links from elsewhere, e.g. the audit link in the reports modal
   useEffect(() => {
     const urlId = searchParams.get('id') ?? '';
     if (urlId === activeConversationId) return;
@@ -148,7 +119,7 @@ const AdminMessages = () => {
     const trimmed = conversationIdInput.trim();
     if (!trimmed) return;
     if (!CONVERSATION_ID_RE.test(trimmed)) {
-      toast.error('Conversation id must be 24 hexadecimal characters.');
+      toast.error('Conversation id must be 24 hexadecimal characters');
       return;
     }
     setFilter('');
@@ -185,6 +156,7 @@ const AdminMessages = () => {
         setPendingDeleteId(message._id);
         try {
           await forceDeleteMessage(message._id);
+          // The server emits message:deleted to participants; this only updates our list
           setState((prev) => ({
             ...prev,
             messages: prev.messages.map((m) =>
@@ -197,7 +169,7 @@ const AdminMessages = () => {
           setConfirm(null);
         } catch (err) {
           const message2 =
-            err?.response?.data?.message || 'Could not delete message.';
+            err?.response?.data?.message || 'Could not delete message';
           toast.error(message2);
           throw err;
         } finally {
@@ -207,8 +179,7 @@ const AdminMessages = () => {
     });
   };
 
-  /* ---------- Derived ---------- */
-
+  // Filters only the page already loaded, so it stays inside the audited read
   const filteredMessages = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     if (!needle) return state.messages;
@@ -274,7 +245,7 @@ const AdminMessages = () => {
             type="text"
             value={conversationIdInput}
             onChange={(event) => setConversationIdInput(event.target.value)}
-            placeholder="Paste a conversation id (24 hex characters)…"
+            placeholder="Conversation id (24 hex characters)"
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -350,7 +321,7 @@ const AdminMessages = () => {
               type="search"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
-              placeholder="Filter loaded messages by text or sender…"
+              placeholder="Filter by text or sender"
               className="block w-full rounded-md border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
             />
           </label>
