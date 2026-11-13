@@ -1,105 +1,186 @@
+<div align="center">
+
 # Chatty
 
-A real-time chat app built with the MERN stack. Direct messages, group chats, typing indicators, read receipts, image sharing, and an admin panel for handling reports.
+**Direct and group chat that updates live.**
+Messages, typing indicators, read receipts and images, built on the MERN stack with Socket.io.
 
-Live demo: https://chat-app-mernn.netlify.app (the free Render backend sleeps when idle, so the first request can take about 30 seconds)
+[Live demo](https://chat-app-mernn.netlify.app) · [Screenshots](#screenshots) · [How it works](#how-it-works) · [Run it locally](#run-it-locally)
 
-![Chat screen](assets/screenshots/chat.png)
+<br />
 
-## Features
+<img src="assets/screenshots/chat.png" alt="Chatty chat screen in dark mode" width="900" />
 
-- Direct and group chats that update live over Socket.io
-- Typing indicator, online status, and sent/read ticks
-- Image messages (uploaded to Cloudinary), replies, reactions, and in-chat search
-- Edit a message for 15 minutes after sending, or delete it for everyone
-- Mute, archive, and block. You can hide your online status and read receipts
-- Notifications: in-app, browser, and sound
-- Admin panel: users, reports, suspensions, and an audit log of admin actions
-- Light and dark themes
+</div>
 
-## Stack
+<br />
 
-| Part | Tech |
+## What it does
+
+| | |
 |---|---|
-| Frontend | React 19, Vite, Tailwind CSS v4, React Router, Axios, socket.io-client |
-| Backend | Node, Express 5, Socket.io, Mongoose, JWT, bcrypt, express-validator |
-| Storage | MongoDB for data, Cloudinary for images |
-| Hosting | Netlify (client), Render (server) |
+| **Live messaging** | Messages arrive instantly over Socket.io, with typing indicators, online status and sent/read ticks |
+| **Groups** | Create a group, add people, promote admins, rename or leave |
+| **Rich messages** | Images (stored on Cloudinary), replies, reactions, edits within 15 minutes, delete for everyone |
+| **Search** | Find people by name, or search inside a conversation |
+| **Notifications** | In-app, browser and sound alerts, with per-chat mute |
+| **Privacy** | Hide your online status or read receipts, block users, report abuse |
+| **Admin panel** | Manage users, review reports, suspend accounts, and see an audit log of every admin action |
+| **Themes** | Light and dark, plus font size, density and reduced-motion settings |
 
-## How it fits together
+## Screenshots
 
+<table>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/landing.png" alt="Landing page" /></td>
+    <td width="50%"><img src="assets/screenshots/chat-light.png" alt="Chat in light mode" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Landing page</sub></td>
+    <td align="center"><sub>Chat in light mode</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/login.png" alt="Sign in" /></td>
+    <td width="50%"><img src="assets/screenshots/register.png" alt="Create account" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Sign in</sub></td>
+    <td align="center"><sub>Create account</sub></td>
+  </tr>
+</table>
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["React app<br/>(Vite + Tailwind)"] -- "REST + JWT" --> B["Express API"]
+    A <-- "Socket.io<br/>(same JWT)" --> C["Socket server"]
+    B --> D[("MongoDB")]
+    C --> D
+    B -- "image upload" --> E[("Cloudinary")]
 ```
-React app  --HTTP (Axios + JWT)-->  Express API  ---->  MongoDB
-    ^                                   |
-    |                                   +--> Cloudinary (images)
-    +------- WebSocket (Socket.io) <----+
-```
 
-- **REST** handles anything that needs a reply: logging in, loading old messages, uploading images.
-- **Socket.io** pushes live events: new messages, typing, presence, read receipts, notifications.
-- Each user joins a socket room named after their user id, and each conversation has its own room. The server emits to a room, and everyone in it gets the event.
+The app talks to the server in two ways:
 
-### Login
-
-1. The client posts email and password to `/api/auth/login`.
-2. The server checks the password against the bcrypt hash and signs a JWT.
-3. The client stores the token, and an Axios interceptor sends it as `Authorization: Bearer <token>` on every request.
-4. The `protect` middleware verifies the token and loads the user, so a suspended user is blocked straight away.
-5. The socket connection sends the same token, so HTTP and WebSocket share one identity.
+- **REST** for anything that needs an answer: signing in, loading older messages, uploading an image.
+- **Socket.io** for anything the server needs to push: new messages, typing, presence, read receipts, notifications.
 
 ### Sending a message
 
-1. The client emits `message:send` over the socket.
-2. The server checks that the sender is in the conversation and is not blocked, then saves the message to MongoDB.
-3. The server emits `message:new` to the conversation room, so everyone in the chat sees it instantly.
-4. When the other person opens the chat, the client emits a read event and the sender's ticks turn blue.
+```mermaid
+sequenceDiagram
+    participant S as Sender
+    participant API as Socket server
+    participant DB as MongoDB
+    participant R as Everyone in the chat
+
+    S->>API: message:send { conversationId, text, clientTempId }
+    API->>API: validate, check the sender is in the chat and not blocked
+    API->>DB: save message
+    API-->>R: message:new to the chat room
+    API-->>S: ack with the saved message
+    Note over S: clientTempId swaps the "sending" bubble for the saved one
+```
+
+### Rooms
+
+When a socket connects, the server joins it to:
+
+- `user:<id>` for every tab and device of that user (notifications, forced logout)
+- `conv:<id>` for each conversation **the database says the user belongs to**
+
+The client never chooses its own rooms, so nobody can listen in on a chat they're not part of.
 
 ## Security
 
-- Passwords hashed with bcrypt, and the login error is the same for an unknown email and a wrong password
-- Every route validated with express-validator, with NoSQL injection sanitizing
-- Helmet headers, a CORS allow-list, and rate limits on auth, messages, and uploads
-- Uploads limited by MIME type and size
-- Users can't set their own `role` or `status`
+- Passwords hashed with bcrypt (cost 12). Login gives the same error for an unknown email and a wrong password
+- The JWT is checked on every request and on the socket handshake. Suspended users are cut off immediately
+- express-validator on every route, NoSQL-injection sanitizing, Helmet headers and a CORS allow-list
+- Separate rate limits for auth, messages and uploads
+- `role` and `status` can never be set from the request body
+
+## Tech
+
+| Frontend | Backend | Data and hosting |
+|---|---|---|
+| React 19, React Router | Node, Express 5 | MongoDB with Mongoose |
+| Vite, Tailwind CSS v4 | Socket.io | Cloudinary for images |
+| Axios, socket.io-client | JWT, bcrypt, express-validator | Netlify + Render |
 
 ## Run it locally
 
-You need Node 18.18+ and a MongoDB database (local or Atlas). Images need a free Cloudinary account.
+You need **Node 18.18+**, a **MongoDB** database (local or Atlas) and a free **Cloudinary** account for images.
 
 ```bash
 git clone https://github.com/jennyasync/chat-app-mern.git
 cd chat-app-mern
 
-cp server/.env.example server/.env   # fill in MONGO_URI, JWT_SECRET, Cloudinary keys
+cp server/.env.example server/.env
 cp client/.env.example client/.env
-
-cd server && npm install && npm run seed:admin && npm run dev   # http://localhost:5000
-cd client && npm install && npm run dev                         # http://localhost:5173 (second terminal)
 ```
 
-Health check: http://localhost:5000/api/health
+Fill in `server/.env`, then start both parts in two terminals:
 
-## Folders
+```bash
+cd server && npm install && npm run seed:admin && npm run dev   # API on http://localhost:5000
+```
+
+```bash
+cd client && npm install && npm run dev                         # app on http://localhost:5173
+```
+
+<details>
+<summary><b>Environment variables</b></summary>
+<br />
+
+**server/.env**
+
+| Variable | Example | Notes |
+|---|---|---|
+| `PORT` | `5000` | |
+| `CLIENT_URL` | `http://localhost:5173` | Allowed CORS origin |
+| `MONGO_URI` | `mongodb://localhost:27017/chat_app` | |
+| `JWT_SECRET` | 64 random hex characters | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `JWT_EXPIRES_IN` | `7d` | |
+| `CLOUDINARY_CLOUD_NAME` / `_API_KEY` / `_API_SECRET` | | From your Cloudinary dashboard |
+| `ADMIN_EMAIL` / `ADMIN_USERNAME` / `ADMIN_PASSWORD` | | Used by `npm run seed:admin` |
+| `MAX_UPLOAD_SIZE_MB` | `5` | |
+
+**client/.env**
+
+| Variable | Example |
+|---|---|
+| `VITE_API_URL` | `http://localhost:5000/api` |
+| `VITE_SOCKET_URL` | `http://localhost:5000` |
+
+</details>
+
+<details>
+<summary><b>Project structure</b></summary>
+<br />
 
 ```
 server/
   index.js        Express app, middleware, routes, Socket.io setup
-  config/         env loading, Cloudinary
+  config/         env loading, database, Cloudinary
   models/         User, Conversation, Message, Notification, Report, AdminAuditLog
-  routes/         URL -> controller, with validators and rate limits
-  controllers/    request handlers
-  validators/     express-validator rules
-  middlewares/    auth, errors, uploads, rate limits
+  routes/         URL -> validator -> controller
+  controllers/    REST handlers
   sockets/        message, typing, presence and group events
-  utils/          shared services (messages, conversations, notifications)
+  utils/          rules shared by REST and sockets
+  middlewares/    auth, errors, uploads, rate limits
 client/src/
-  api/            Axios instance and one file per resource
+  api/            Axios instance, one file per resource
   contexts/       Auth, Socket, ChatState, Notifications, Preferences
   pages/          landing, auth, chat, profile, settings, admin
   components/     chat UI, layout, modals, shared pieces
   hooks/          small reusable hooks
 ```
 
-## License
+</details>
 
-MIT
+<br />
+
+<div align="center">
+<sub>Built by <a href="https://github.com/jennyasync">jennyasync</a> · MIT license</sub>
+</div>
