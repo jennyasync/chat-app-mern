@@ -12,11 +12,6 @@ import {
 const SEARCH_MIN_LENGTH = 2;
 const SEARCH_MAX_LENGTH = 30;
 
-/**
- * Search query guard. The escaping (for safe regex use) happens in the
- * controller via `escapeRegex` — here we only enforce shape and length to
- * cap the work both validators and Mongo will do.
- */
 export const validateSearchQuery = [
   query('q')
     .exists({ checkFalsy: true })
@@ -31,11 +26,6 @@ export const validateSearchQuery = [
   validate,
 ];
 
-/**
- * Username path-parameter guard. We deliberately do NOT use isMongoId here
- * because public profile lookups are by username, not id. Lowercasing
- * matches the DB representation and avoids needless cache misses.
- */
 export const validateUsername = [
   param('username')
     .isString()
@@ -50,22 +40,8 @@ export const validateUsername = [
   validate,
 ];
 
-/**
- * Strict per-field guards for the preferences subdocument. Two layers
- * of safety are applied:
- *
- *  1. Each known field is validated against its enum / type.
- *  2. The body root is validated against an allow-list of keys — any
- *     unknown key (top-level OR inside `notifications`) is rejected
- *     with a 400 instead of being silently dropped. This protects
- *     against typos AND against a future field rename leaving stale
- *     payloads in flight from cached clients.
- *
- * Adding a new preference therefore requires touching THREE places:
- * this allow-list, the per-field rule above, and the controller
- * whitelist (`PREFERENCE_PATHS` in user.controller.js). The triple-edit
- * is intentional — it forces a deliberate decision per addition.
- */
+// Unknown keys are rejected with a 400 instead of silently ignored.
+// A new preference must also be added to PREFERENCE_PATHS in user.controller.js.
 const ALLOWED_PREFERENCE_KEYS = Object.freeze([
   'theme',
   'fontSize',

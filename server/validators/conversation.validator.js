@@ -6,14 +6,14 @@ import {
   GROUP_MAX_PARTICIPANTS,
 } from '../utils/constants.js';
 
-// Server adds the creator → caller may submit at most (CAP - 1) other ids.
+// The creator is added by the server, so the client can send one fewer.
 const MAX_OTHER_PARTICIPANTS = GROUP_MAX_PARTICIPANTS - 1;
 
 const groupNameRule = ({ optional = false } = {}) => {
   const chain = body('name').trim();
   return (optional ? chain.optional({ values: 'falsy' }) : chain)
     .isLength({ min: 1, max: GROUP_NAME_MAX_LENGTH })
-    .withMessage(`Group name must be 1–${GROUP_NAME_MAX_LENGTH} characters`)
+    .withMessage(`Group name must be 1-${GROUP_NAME_MAX_LENGTH} characters`)
     .escape();
 };
 
@@ -23,9 +23,6 @@ const avatarUrlRule = () =>
     .isURL({ protocols: ['http', 'https'], require_protocol: true })
     .withMessage('avatarUrl must be a valid http(s) URL')
     .bail()
-    // Group avatars are echoed to every participant — restricting them to
-    // our Cloudinary cloud removes the entire "avatar URL injection"
-    // class (arbitrary tracking pixels, attacker CDNs, etc.).
     .custom(cloudinaryUrlValidator);
 
 export const validateCreateDirect = [
@@ -50,7 +47,6 @@ export const validateCreateGroup = [
 export const validateUpdateConversation = [
   groupNameRule({ optional: true }),
   avatarUrlRule(),
-  // Reject calls that don't actually carry an updatable field.
   body().custom((value) => {
     const hasName = typeof value?.name === 'string' && value.name.trim().length > 0;
     const hasAvatar = typeof value?.avatarUrl === 'string';
@@ -72,11 +68,7 @@ export const validateAddMembers = [
   validate,
 ];
 
-/**
- * Optional `?archived=true|false` switch for the conversation list.
- * Strict string match — express-validator's loose `isBoolean()` would let
- * `1` / `0` slip through and complicate the controller branch.
- */
+// Strict match: isBoolean() would also accept 1 and 0.
 export const validateArchivedQuery = [
   query('archived')
     .optional()

@@ -1,10 +1,6 @@
 import { validationResult } from 'express-validator';
 
-/**
- * Aggregates express-validator results and returns a 400 with a
- * field-keyed error map. Designed to run as the LAST item in a
- * validator chain array (e.g. `[...validateRegister, validate]`).
- */
+// Runs last in each validator chain.
 export const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (errors.isEmpty()) return next();

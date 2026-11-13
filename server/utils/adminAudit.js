@@ -4,20 +4,7 @@ import { ADMIN_AUDIT_ACTIONS } from './constants.js';
 
 const ALLOWED_ACTIONS = new Set(Object.values(ADMIN_AUDIT_ACTIONS));
 
-/**
- * Best-effort append to the admin audit trail.
- *
- * Failures here MUST NEVER bubble up — admin moderation actions have
- * already been persisted by the time we log, and surfacing a Mongo
- * write error would mislead the operator into thinking the moderation
- * action itself failed. We log to stderr in non-prod for diagnostics
- * and otherwise swallow the error silently.
- *
- * Caller passes the action enum value directly (so a typo fails fast
- * here at the `ALLOWED_ACTIONS` gate) and a `meta` object whose shape
- * is action-specific. `meta` is shallow-cloned so the caller cannot
- * mutate the persisted document after the fact.
- */
+// Never throws: the admin action is already saved, so a log failure must not look like it failed.
 export const writeAuditLog = async ({
   adminId,
   action,
@@ -49,5 +36,3 @@ export const writeAuditLog = async ({
     return null;
   }
 };
-
-export default writeAuditLog;

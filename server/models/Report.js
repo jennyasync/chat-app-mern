@@ -9,23 +9,6 @@ import {
 
 const { Schema, model } = mongoose;
 
-/**
- * User-filed abuse report. Polymorphic via `(targetType, targetId)` so
- * one collection covers user / message / conversation reports without
- * exploding the schema surface or requiring three near-identical
- * routers.
- *
- * `targetId` is intentionally NOT a `ref` — Mongoose `ref` is bound to a
- * single model and we want admin lookups to populate the appropriate
- * collection at the controller layer based on `targetType`. This keeps
- * the document small (no per-type discriminator) and the read path
- * explicit.
- *
- * `description` is treated as untrusted user input: the validator
- * length-caps it and the report controller passes it through a strict
- * sanitizer before persistence (XSS defence-in-depth — even though
- * clients render reports as plain text today).
- */
 const reportSchema = new Schema(
   {
     reporter: {
@@ -39,6 +22,7 @@ const reportSchema = new Schema(
       enum: Object.values(REPORT_TARGET_TYPES),
       required: [true, 'targetType is required'],
     },
+    // No `ref`: the target can be a user, message or conversation depending on targetType.
     targetId: {
       type: Schema.Types.ObjectId,
       required: [true, 'targetId is required'],
@@ -82,13 +66,9 @@ const reportSchema = new Schema(
   { timestamps: true },
 );
 
-// Hot-path: "list pending reports for the moderation queue".
 reportSchema.index({ status: 1, createdAt: -1 });
 
-// Cooldown lookup: "has this reporter already reported this target
-// inside the last 24 h?". Field order mirrors the cooldown query in
-// `report.controller.js` so the index is fully covered.
+// Supports the 24h duplicate-report check.
 reportSchema.index({ reporter: 1, targetType: 1, targetId: 1, createdAt: -1 });
 
 export const Report = model('Report', reportSchema);
-export default Report;

@@ -1,28 +1,5 @@
-/**
- * Wire-format helpers shared between the REST and WebSocket layers.
- *
- * Centralised here so the same exact projection ships to clients no
- * matter which transport delivered it. Drift between two serializers
- * (REST returning `hiddenFor`, WebSocket returning everything) would
- * silently leak server-internal fields and create asymmetric UIs.
- */
-
-/**
- * Public sender shape exposed to clients on every message payload.
- * Mirrors the projection used inside `messageService.js`.
- */
-export const PUBLIC_SENDER_PROJECTION = '_id username displayName avatarUrl';
-
-/**
- * Convert a Mongoose Message doc (or plain object) into the wire shape
- * the client expects. Strips server-side bookkeeping — `hiddenFor` is
- * used for "delete for self" tombstones and must NEVER be sent (it
- * would leak the list of users who hid a given message).
- *
- * Optional `extras` are merged into the result so the socket layer can
- * tack on `clientTempId` (for optimistic-UI reconciliation) without a
- * second pass over the object.
- */
+// Shared by REST and sockets so both send the same shape.
+// hiddenFor is stripped because it reveals who deleted the message for themselves.
 export const serializeMessage = (doc, extras = null) => {
   if (!doc) return null;
   const obj =
@@ -36,11 +13,6 @@ export const serializeMessage = (doc, extras = null) => {
   return obj;
 };
 
-/**
- * Public user shape used inside `notification:new` payloads. Avatar +
- * displayName + username is everything the client needs to render the
- * notification card; email/role/status/preferences MUST stay private.
- */
 export const serializePublicUser = (user) => {
   if (!user) return null;
   const obj =
@@ -55,18 +27,7 @@ export const serializePublicUser = (user) => {
   };
 };
 
-/**
- * Public notification shape exposed on REST + WebSocket payloads.
- *
- * The caller may pass a Mongoose document or a `lean()`-ed plain
- * object — we normalise both to a shallow plain object first. The
- * `actor` field can come back as an ObjectId (lean, no populate) OR a
- * populated user subdocument; `serializePublicUser` handles both.
- *
- * Server-internal fields (`__v`, anything that might leak the schema
- * shape) are omitted by selecting an explicit allow-list rather than
- * stripping a deny-list — newer schema fields cannot accidentally leak.
- */
+// Allow-list of fields, so new schema fields never leak by accident.
 export const serializeNotification = (doc) => {
   if (!doc) return null;
   const obj =
@@ -74,8 +35,7 @@ export const serializeNotification = (doc) => {
       ? doc.toObject({ virtuals: false, versionKey: false })
       : { ...doc };
 
-  // Resolve `actor`: populated → public user shape; bare ObjectId → null
-  // for the embedded copy and the raw id stays available on `actorId`.
+  // actor may be populated or a bare ObjectId.
   let actor = null;
   let actorId = null;
   if (obj.actor && typeof obj.actor === 'object' && obj.actor._id) {
@@ -97,11 +57,4 @@ export const serializeNotification = (doc) => {
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
   };
-};
-
-export default {
-  serializeMessage,
-  serializePublicUser,
-  serializeNotification,
-  PUBLIC_SENDER_PROJECTION,
 };

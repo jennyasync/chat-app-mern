@@ -4,11 +4,7 @@ import { connectDB } from '../config/db.js';
 import { User } from '../models/User.js';
 import { ROLES } from '../utils/constants.js';
 
-/**
- * Idempotent admin seeder. Run with `npm run seed:admin`.
- * Safe to invoke repeatedly — it only creates an admin if NONE exists.
- * NEVER logs the admin password.
- */
+// Only creates an admin if none exists, so it's safe to run more than once.
 const run = async () => {
   await connectDB();
 

@@ -1,8 +1,8 @@
-import mongoose from 'mongoose';
 import { User } from '../models/User.js';
 import { Conversation } from '../models/Conversation.js';
 import { Message } from '../models/Message.js';
 import { Notification } from '../models/Notification.js';
+import { Report } from '../models/Report.js';
 import { ApiError } from '../utils/apiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { escapeRegex } from '../utils/escapeRegex.js';
@@ -24,28 +24,14 @@ import {
   CONVERSATION_TYPES,
   MESSAGE_DELETED_FOR,
   ADMIN_AUDIT_ACTIONS,
-  REPORT_TARGET_TYPES,
+  REPORT_STATUSES,
 } from '../utils/constants.js';
 
-/**
- * Public projection for the user list / detail endpoints. Email and
- * timestamps are useful to admins (audit trail, support workflows) but
- * password and big preference subdocs stay out — admin views consume
- * the same wire shape regardless of the requester role to keep
- * snapshot tests stable.
- */
 const ADMIN_USER_PROJECTION =
   '_id username email displayName avatarUrl avatarPublicId bio role status isOnline lastSeenAt createdAt updatedAt';
 
-/** Equality helper that tolerates ObjectId / string mixes. */
 const idEquals = (a, b) => String(a) === String(b);
 
-/**
- * Force-disconnect every live socket for a given user. Called on the
- * suspend path so a revoked account cannot keep an open WebSocket
- * pumping events. The room name MUST come from `userRoom()` so we
- * never drift between emitter and joiner conventions.
- */
 const forceDisconnectUser = (req, userId) => {
   const io = req.app.get('io');
   if (!io) return;
@@ -56,31 +42,16 @@ const forceDisconnectUser = (req, userId) => {
   }
 };
 
-/**
- * Cascade for an admin hard-delete:
- *   - Pull the user from every conversation (participants + admins).
- *   - Pull from every other user's `blockedUsers` subdoc list.
- *   - Anonymize the user's messages (set sender → null) so chat
- *     history stays coherent for the rest of the participants.
- *   - Delete every notification where the user is recipient or actor.
- *   - Best-effort destroy of the Cloudinary avatar (billing cleanup).
- *
- * Mute / archive lists on OTHER users are conversation-id arrays, so
- * deleting a user does not require touching them. They naturally clean
- * up next time the conversation panel resolves stale ids.
- */
 const cascadeAdminDelete = async (user) => {
   const userId = user._id;
 
   await Promise.all([
-    // Detach with invariant preservation (tombstone solo/sub-2 groups,
-    // promote a new admin when the last one leaves) instead of a flat
-    // `$pull` that can leave 1-member "active" groups.
     detachUserFromConversations(userId),
     User.updateMany(
       { 'blockedUsers.user': userId },
       { $pull: { blockedUsers: { user: userId } } },
     ),
+    // Keep the messages but drop the sender, so chat history still makes sense.
     Message.updateMany({ sender: userId }, { $set: { sender: null } }),
     Notification.deleteMany({
       $or: [{ recipient: userId }, { actor: userId }],
@@ -94,12 +65,6 @@ export const getStats = asyncHandler(async (_req, res) => {
   const now = Date.now();
   const last24h = new Date(now - 24 * 60 * 60 * 1000);
   const last7d = new Date(now - 7 * 24 * 60 * 60 * 1000);
-
-  // `pendingReports` is wrapped in a defensive check because the
-  // Report model lands in STEP 18; until then it is unregistered and
-  // the stats card simply shows zero. Once the model is loaded the
-  // counter starts populating with no further wiring.
-  const ReportModel = mongoose.models.Report ?? null;
 
   const [
     totalUsers,
@@ -124,9 +89,7 @@ export const getStats = asyncHandler(async (_req, res) => {
     }),
     Message.countDocuments({ createdAt: { $gte: last24h } }),
     Message.countDocuments({ createdAt: { $gte: last7d } }),
-    ReportModel
-      ? ReportModel.countDocuments({ status: 'pending' }).catch(() => 0)
-      : Promise.resolve(0),
+    Report.countDocuments({ status: REPORT_STATUSES.PENDING }),
   ]);
 
   res.status(200).json({
@@ -157,9 +120,6 @@ export const listUsers = asyncHandler(async (req, res) => {
 
   const rawQ = String(req.query.q ?? '').trim();
   if (rawQ) {
-    // ReDoS-safe: every metachar in the user-supplied value is escaped
-    // BEFORE composition so the resulting RegExp can only match the
-    // literal text the admin typed.
     const pattern = new RegExp(escapeRegex(rawQ), 'i');
     filter.$or = [
       { username: pattern },
@@ -213,9 +173,7 @@ export const updateUserStatus = asyncHandler(async (req, res) => {
   const target = await User.findById(id).select('role status');
   if (!target) throw ApiError.notFound('User not found');
 
-  // Admin-on-admin moderation is intentionally locked off: lifting an
-  // admin's account requires direct DB intervention. This prevents one
-  // compromised admin from silencing the rest of the moderation team.
+  // One compromised admin shouldn't be able to suspend the others.
   if (target.role === ROLES.ADMIN) {
     throw ApiError.forbidden('Admin accounts cannot be moderated via this endpoint');
   }
@@ -232,16 +190,11 @@ export const updateUserStatus = asyncHandler(async (req, res) => {
   target.status = status;
   await target.save({ validateBeforeSave: false });
 
-  // Suspended accounts must lose every live socket immediately —
-  // otherwise an in-flight WebSocket connection would keep delivering
-  // events long after the REST surface has been revoked.
+  // Kick live sockets too, otherwise they'd keep working until reconnect.
   if (status === USER_STATUS.SUSPENDED) {
     forceDisconnectUser(req, id);
   }
 
-  // Fire-and-forget audit trail (errors are swallowed inside the
-  // helper). Recorded with the SAME action enum regardless of which
-  // direction the toggle went so forensic queries can group reliably.
   writeAuditLog({
     adminId: req.user._id,
     action:
@@ -284,12 +237,7 @@ export const updateUserRole = asyncHandler(async (req, res) => {
     });
   }
 
-  // Last-admin protection: demoting the only remaining admin would
-  // lock the platform out of every admin-only path. Counted BEFORE
-  // mutating so the check stays atomic at the read layer (race
-  // window: two parallel demotes of two different admins where each
-  // sees the other still admin — acceptable in practice, the next
-  // request blocks the second one).
+  // Never demote the last admin.
   if (target.role === ROLES.ADMIN && role === ROLES.USER) {
     const remainingAdmins = await User.countDocuments({
       role: ROLES.ADMIN,
@@ -333,8 +281,7 @@ export const deleteUser = asyncHandler(async (req, res) => {
   );
   if (!target) throw ApiError.notFound('User not found');
 
-  // Last-admin protection mirrors the role-demote guard so the
-  // platform can never end up with zero admins via either path.
+  // Never delete the last admin.
   if (target.role === ROLES.ADMIN) {
     const remainingAdmins = await User.countDocuments({
       role: ROLES.ADMIN,
@@ -346,9 +293,7 @@ export const deleteUser = asyncHandler(async (req, res) => {
     }
   }
 
-  // Drop every live socket FIRST so cascade work cannot race with
-  // events the deleted user's still-connected tabs would otherwise
-  // try to emit.
+  // Disconnect first so the user's open tabs can't emit while we clean up.
   forceDisconnectUser(req, id);
 
   await cascadeAdminDelete(target);
@@ -372,8 +317,6 @@ export const deleteUser = asyncHandler(async (req, res) => {
     data: { id },
   });
 });
-
-/* -------------------- STEP 18 — Reports & moderation -------------------- */
 
 // GET /api/admin/reports
 export const listReports = asyncHandler(async (req, res) => {
@@ -440,12 +383,7 @@ export const reviewReport = asyncHandler(async (req, res) => {
 });
 
 // DELETE /api/admin/messages/:id
-//
-// Force-delete-for-everyone: bypasses the sender's edit/delete time
-// window AND the sender-only rule, but still routes through the same
-// `message:deleted` socket event so every participant's UI redacts the
-// bubble in real time. The Cloudinary asset (if any) is destroyed
-// fire-and-forget so the response is not blocked on a third-party RTT.
+// Skips the sender-only rule and the time window that normal deletes have.
 export const forceDeleteMessage = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -465,9 +403,7 @@ export const forceDeleteMessage = asyncHandler(async (req, res) => {
   const previousSenderId = message.sender ? String(message.sender) : null;
   const conversationId = String(message.conversationId);
 
-  // The pre-save hook in Message.js clears `text` / `imageUrl` when
-  // `deletedFor === 'everyone'`. We mirror the field cleanup here so
-  // subsequent reads can never replay the original Cloudinary id.
+  // The pre-save hook clears text and imageUrl.
   message.deletedFor = MESSAGE_DELETED_FOR.EVERYONE;
   message.imagePublicId = '';
   await message.save();
@@ -506,13 +442,7 @@ export const forceDeleteMessage = asyncHandler(async (req, res) => {
 });
 
 // GET /api/admin/conversations/:id/messages
-//
-// Read-only audit window into any conversation, regardless of the
-// admin's participation. Every successful access is appended to
-// `AdminAuditLog` so admin-on-admin oversight is possible via direct DB
-// inspection — a moderator who shoulder-surfs private chats leaves a
-// trail. We deliberately DO NOT apply the per-user `hiddenFor`
-// tombstones here: the audit view shows the conversation's true state.
+// Every view is written to the audit log, so reading private chats always leaves a trail.
 export const adminGetConversationMessages = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -538,8 +468,6 @@ export const adminGetConversationMessages = asyncHandler(async (req, res) => {
     Message.countDocuments(filter),
   ]);
 
-  // Audit AFTER the query succeeded so we never log a phantom access
-  // for a conversation that didn't exist or threw mid-read.
   writeAuditLog({
     adminId: req.user._id,
     action: ADMIN_AUDIT_ACTIONS.CONVERSATION_VIEW,
@@ -562,16 +490,8 @@ export const adminGetConversationMessages = asyncHandler(async (req, res) => {
         name: conversation.name || '',
         participantCount: conversation.participants?.length ?? 0,
       },
-      // Reverse to chronological order so admins read the audit feed
-      // top-to-bottom the same way a normal user would.
       items: items.reverse().map((m) => serializeMessage(m)),
       ...buildPageMeta({ total, page, limit }),
     },
   });
 });
-
-// Re-exported for tests; not part of the wire surface.
-export const _adminInternals = {
-  REPORT_TARGET_TYPES,
-  ADMIN_AUDIT_ACTIONS,
-};

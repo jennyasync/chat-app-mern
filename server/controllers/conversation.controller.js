@@ -33,15 +33,7 @@ import {
 
 const { Types } = mongoose;
 
-/**
- * Persist a system message AND broadcast it via `message:new` so every
- * connected participant sees the timeline event instantly. The post-save
- * hook on Message already refreshes `Conversation.lastMessage`; this
- * helper just wraps the socket fan-out so the controllers stay tidy.
- *
- * Notification dispatch is a no-op for system messages because
- * `broadcastNewMessage` skips when `sender` is null.
- */
+// A failed broadcast is only logged; the system message is already saved.
 const emitSystemMessage = async (io, message) => {
   if (!io || !message) return;
   try {
@@ -51,22 +43,12 @@ const emitSystemMessage = async (io, message) => {
   }
 };
 
-/**
- * Public projection for any populated participant. We pull
- * `preferences.showOnlineStatus` only to apply the privacy mask in
- * `serializeParticipant` and strip it before sending. Email, password,
- * blockedUsers, full preferences, etc. are NEVER exposed.
- */
+// showOnlineStatus is only loaded to apply the privacy mask, then stripped.
 const PARTICIPANT_PROJECTION =
   '_id username displayName avatarUrl isOnline lastSeenAt preferences.showOnlineStatus status';
 
 const idEquals = (a, b) => String(a) === String(b);
 
-/**
- * Render a participant object: enforces the per-user `showOnlineStatus`
- * privacy preference server-side and removes the preferences subdoc that
- * was selected only to make the decision.
- */
 const serializeParticipant = (rawUser) => {
   if (!rawUser) return null;
   const user =
@@ -84,12 +66,7 @@ const serializeParticipant = (rawUser) => {
   return user;
 };
 
-/**
- * Render a Conversation for a specific viewer:
- *  - converts the unreadCounts Map into a single `unreadCount` scalar for
- *    the viewer (other users' counts are never leaked).
- *  - applies privacy masking on every participant.
- */
+// Only the viewer's own unread count is sent, never the whole map.
 const serializeConversation = (conv, viewerId) => {
   if (!conv) return null;
   const obj = conv.toObject({
@@ -113,14 +90,9 @@ const populateAndSerialize = async (conv, viewerId) => {
   return serializeConversation(conv, viewerId);
 };
 
-/**
- * Block-aware lookup used during direct/group creation. Returns the set
- * of usable target user docs and surfaces a 4xx if any constraint fails.
- */
+// Throws if any target doesn't exist, is inactive, or has a block with the requester.
 const loadAndAssertUsable = async (targetIds, requester) => {
   const requesterId = String(requester._id);
-  // `blockedUsers` is now `[{ user, blockedAt }]` — extract just the ids
-  // for membership checks.
   const requesterBlocks = new Set(
     (requester.blockedUsers || [])
       .map((entry) => entry?.user)
@@ -160,19 +132,12 @@ export const getConversations = asyncHandler(async (req, res) => {
     maxLimit: 50,
   });
 
-  // Archive filter (STEP 10): default view excludes archived chats; pass
-  // `?archived=true` to see the archived bucket. Validation of the
-  // boolean-like query param happens in `validateArchivedQuery`.
   const wantsArchived = req.query.archived === 'true';
   const archivedIds = (req.user.archivedConversations || []).map(
     (id) => new Types.ObjectId(String(id)),
   );
 
-  // Build the bidirectional set of "users I can no longer see in the
-  // sidebar": users I blocked + users who blocked me. Direct chats with
-  // any of them are hidden from the LIST view (the conversation itself
-  // is preserved — re-opening via deep link is allowed and surfaces a
-  // banner client-side).
+  // Hide direct chats with anyone I blocked or who blocked me. The chat itself is kept.
   const blockedByMe = (req.user.blockedUsers || [])
     .map((entry) => entry?.user)
     .filter(Boolean);
@@ -183,9 +148,6 @@ export const getConversations = asyncHandler(async (req, res) => {
   ).lean();
   const blockedMeIds = blockedMeRows.map((u) => u._id);
 
-  // De-duplicate by hex string before re-materialising as ObjectIds for
-  // the query — concatenating the two arrays directly would let a mutual
-  // block double-count (and confuses index planners).
   const hiddenUserIds = Array.from(
     new Set([...blockedByMe, ...blockedMeIds].map((id) => String(id))),
   ).map((s) => new Types.ObjectId(s));
@@ -201,7 +163,6 @@ export const getConversations = asyncHandler(async (req, res) => {
   }
 
   if (wantsArchived) {
-    // No archived chats → nothing to return; short-circuit before hitting Mongo.
     if (archivedIds.length === 0) {
       return res.status(200).json({
         success: true,
@@ -250,7 +211,6 @@ export const createDirect = asyncHandler(async (req, res) => {
 export const createGroup = asyncHandler(async (req, res) => {
   const { name, participantIds, avatarUrl = '' } = req.body;
 
-  // De-duplicate, drop self if accidentally included.
   const requesterId = String(req.user._id);
   const uniqueOthers = Array.from(
     new Set(participantIds.map((id) => String(id))),
@@ -280,9 +240,6 @@ export const createGroup = asyncHandler(async (req, res) => {
 
   const data = await populateAndSerialize(created, req.user._id);
 
-  // Broadcast `group:created` to every member so their other devices
-  // pick the new conversation up + auto-join the conv room. The HTTP
-  // response already gives the creator's calling device a copy.
   const io = req.app.get('io');
   if (io) {
     emitGroupCreated(io, { conversation: data, memberIds: participants });
@@ -344,8 +301,6 @@ export const updateConversation = asyncHandler(async (req, res) => {
 
   const io = req.app.get('io');
 
-  // System message must be emitted AFTER the save so the post-save hook
-  // sees the new name on the parent doc when refreshing lastMessage.
   if (renamedTo) {
     const sysMsg = await createSystemMessage({
       conversationId: conversation._id,
@@ -359,9 +314,6 @@ export const updateConversation = asyncHandler(async (req, res) => {
 
   const data = await populateAndSerialize(conversation, req.user._id);
 
-  // Patch the rest of the room with only the changed metadata so
-  // clients can do a targeted merge without replacing the participants
-  // array (which would clobber any in-flight presence updates).
   if (io) {
     const changes = {};
     for (const key of ALLOWED) {
@@ -413,9 +365,6 @@ export const addMembers = asyncHandler(async (req, res) => {
 
   const io = req.app.get('io');
 
-  // System message per added user — readable timeline event for everyone
-  // already in the group. Display names are sanitized server-side inside
-  // `buildSystemMessageText`.
   const addedDocs = await User.find({ _id: { $in: requestedIds } })
     .select('displayName')
     .lean();
@@ -447,35 +396,14 @@ export const addMembers = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data });
 });
 
-/**
- * Shared logic for "leave on your own" vs. "kicked by an admin".
- * Returns the conversation document AFTER the side effect.
- *
- * Last-admin handling: if the leaver was the only admin, promote the
- * first remaining participant (insertion order ≈ joinedAt). If no one
- * else remains the group is marked inactive.
- */
+// Used for both leaving and being removed. Returns the updated conversation.
 const removeParticipant = async ({ conversation, targetId }) => {
   const tid = String(targetId);
   const remaining = conversation.participants
     .map((p) => String(p))
     .filter((id) => id !== tid);
 
-  // Solo leaver → tombstone the group instead of leaving an orphan doc.
-  if (remaining.length === 0) {
-    return Conversation.findByIdAndUpdate(
-      conversation._id,
-      {
-        $pull: { participants: tid, admins: tid },
-        $unset: { [`unreadCounts.${tid}`]: '' },
-        $set: { isActive: false },
-      },
-      { new: true },
-    );
-  }
-
-  // 1-person residual group is structurally invalid (model requires ≥ 2),
-  // so we keep them as participant but flag the group inactive.
+  // A group needs at least 2 members, so close it instead.
   if (remaining.length < 2) {
     return Conversation.findByIdAndUpdate(
       conversation._id,
@@ -498,9 +426,7 @@ const removeParticipant = async ({ conversation, targetId }) => {
     $unset: { [`unreadCounts.${tid}`]: '' },
   };
 
-  // Promote the next-joined participant when we'd otherwise zero the
-  // admin list. `remaining[0]` is the earliest-joined remaining user
-  // because participants is push-only.
+  // Participants are only ever pushed, so remaining[0] is the earliest member.
   if (wasAdmin && remainingAdmins.length === 0) {
     update.$addToSet = { admins: remaining[0] };
   }
@@ -535,9 +461,7 @@ export const removeMember = asyncHandler(async (req, res) => {
 
   const io = req.app.get('io');
 
-  // Tear down the removed user's room subscription FIRST so the system
-  // message broadcast that follows does NOT reach them. Skip when the
-  // group was tombstoned (everyone is leaving anyway).
+  // Remove them from the room first so they don't get the system message below.
   if (io && updated?.isActive) {
     emitGroupMemberRemoved(io, {
       conversationId: updated._id,
@@ -547,9 +471,6 @@ export const removeMember = asyncHandler(async (req, res) => {
     });
   }
 
-  // System message: distinguish self-leave from admin-kick so the timeline
-  // reads naturally. Skip emission when the group was tombstoned (the
-  // removal left fewer than 2 participants — there's nobody left to read it).
   if (updated?.isActive) {
     let sysMsg;
     if (isSelf) {
@@ -652,10 +573,7 @@ export const demoteAdmin = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('User is not an admin of this group');
   }
 
-  // Last-admin protection (mirrors STEP 6): a group MUST always retain at
-  // least one admin. Demoting yourself when you are the sole admin is a
-  // foot-gun we close here — the user can leave the group instead, which
-  // triggers automatic promotion of the next-joined participant.
+  // A group always needs an admin. Leaving instead auto-promotes someone.
   if (conversation.admins.length === 1) {
     throw ApiError.badRequest(
       'Cannot demote the last admin; promote another admin first or leave the group',
@@ -693,14 +611,10 @@ export const demoteAdmin = asyncHandler(async (req, res) => {
     .json({ success: true, data: serializeConversation(updated, req.user._id) });
 });
 
-/**
- * Toggle an entry on a user-scoped array (mutedConversations or
- * archivedConversations). Single round-trip, atomic, and decided
- * server-side from the latest DB state — never trust the in-memory copy.
- */
+// Toggles an id in mutedConversations or archivedConversations.
 const toggleUserArrayMembership = async ({ user, conversationId, field }) => {
   const cid = new Types.ObjectId(conversationId);
-  // Re-read the live array to avoid stale stop-and-think races.
+  // Read fresh from the DB; req.user may be stale.
   const fresh = await User.findById(user._id).select(field).lean();
   const current = (fresh?.[field] || []).map((id) => String(id));
   const isMember = current.includes(String(cid));
@@ -711,9 +625,7 @@ const toggleUserArrayMembership = async ({ user, conversationId, field }) => {
 
   await User.updateOne({ _id: user._id }, op);
 
-  // Return BOTH the boolean and the reconciled array. Clients optimistically
-  // flip the membership, then reconcile against `list` so a concurrent
-  // mutation from another device can't strand a wrong toggle state.
+  // Return the full list so the client can sync with changes from other devices.
   const list = isMember
     ? current.filter((id) => id !== String(cid))
     : [...current, String(cid)];
@@ -760,10 +672,6 @@ export const toggleArchive = asyncHandler(async (req, res) => {
 
 // POST /api/conversations/:id/read
 export const markRead = asyncHandler(async (req, res) => {
-  // Load once for the participant gate AND to know who else needs the
-  // socket event later. `markConversationAsRead` does its own membership
-  // check too — but we want the snappy 4xx (and to capture participants
-  // for the broadcast payload) before touching the message collection.
   const conversation = await Conversation.findById(req.params.id).select(
     'participants type',
   );
@@ -774,10 +682,7 @@ export const markRead = asyncHandler(async (req, res) => {
     userId: req.user._id,
   });
 
-  // Server-side privacy gate: a user with `showReadReceipts: false` may
-  // freely reset their OWN unread count, but the rest of the room must
-  // never learn that they read the messages. Decided here, not on the
-  // client, so flipping the toggle in DevTools is meaningless.
+  // With read receipts off we still reset the user's own count, just don't tell the room.
   const broadcast = req.user.preferences?.showReadReceipts !== false;
   const readAt = new Date().toISOString();
 
@@ -803,17 +708,11 @@ export const markRead = asyncHandler(async (req, res) => {
 
 // GET /api/conversations/unread-summary
 export const getUnreadSummary = asyncHandler(async (req, res) => {
-  // Map<userId, count> is stored as a sub-document in MongoDB, so the
-  // dotted path resolves correctly inside aggregation. The user id is a
-  // 24-char hex string sourced from the verified JWT — no metacharacters
-  // can leak into the field path here.
+  // Safe to build a field path: the id comes from the verified token, not user input.
   const userIdStr = String(req.user._id);
   const unreadPath = `$unreadCounts.${userIdStr}`;
 
-  // Mirror the visibility rules of `getConversations` so the global badge
-  // never counts chats the user can't actually see in the sidebar:
-  //   - archived conversations are excluded,
-  //   - direct chats with a blocked / blocking user are excluded.
+  // Same visibility rules as getConversations, so the badge matches the sidebar.
   const archivedIds = (req.user.archivedConversations || []).map(
     (id) => new Types.ObjectId(String(id)),
   );
@@ -851,9 +750,6 @@ export const getUnreadSummary = asyncHandler(async (req, res) => {
     {
       $project: {
         _id: 1,
-        // `$ifNull` covers brand-new conversations where the map entry
-        // does not exist yet; `$convert` defends against accidental
-        // string values written by older code paths.
         count: {
           $convert: {
             input: { $ifNull: [unreadPath, 0] },
@@ -898,8 +794,6 @@ export const deleteConversation = asyncHandler(async (req, res) => {
 
   const io = req.app.get('io');
 
-  // Only emit a "left the group" system event when there's actually a
-  // group left to read it. Tombstoned (isActive: false) groups skip it.
   if (updated?.isActive) {
     if (io) {
       emitGroupMemberRemoved(io, {

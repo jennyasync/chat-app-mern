@@ -16,9 +16,7 @@ export const uploadAvatarController = asyncHandler(async (req, res) => {
 
   const { url, publicId } = await streamUpload(req.file.buffer, AVATAR_FOLDER);
 
-  // Persist BEFORE destroying the old asset — if the DB write fails we
-  // still own the new asset and can retry, instead of leaving the user
-  // with a broken avatar reference.
+  // Save first, then delete the old image, so a failed write never leaves a broken avatar.
   await User.updateOne(
     { _id: req.user._id },
     { $set: { avatarUrl: url, avatarPublicId: publicId } },
@@ -36,11 +34,6 @@ export const uploadAvatarController = asyncHandler(async (req, res) => {
 });
 
 // DELETE /api/upload/avatar
-//
-// Removes the caller's avatar — clears `avatarUrl` / `avatarPublicId`
-// on the user document AND destroys the Cloudinary asset so we don't
-// leak orphaned blobs. Idempotent: a user with no avatar gets a 200
-// with `removed: false` instead of a confusing error.
 export const deleteAvatarController = asyncHandler(async (req, res) => {
   const previousPublicId = req.user.avatarPublicId;
   const hadAvatar = Boolean(req.user.avatarUrl || previousPublicId);
@@ -75,10 +68,7 @@ export const uploadMessageImageController = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Image file is required (field name "image")');
   }
 
-  // We deliberately DO NOT create a Message here. The client follows up
-  // with POST /api/messages or a Socket.io emit, supplying the imageUrl /
-  // imagePublicId returned below. This decouples the heavy upload from
-  // the lightweight send and lets the client cancel sends after upload.
+  // Only uploads; the client sends the message afterwards with the returned url.
   const { url, publicId } = await streamUpload(req.file.buffer, MESSAGE_FOLDER);
 
   res.status(201).json({

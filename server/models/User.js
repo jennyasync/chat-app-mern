@@ -17,15 +17,10 @@ import {
 
 const { Schema, model } = mongoose;
 
-// RFC 5322-lite email shape — strict enough to catch typos, loose enough
-// to avoid the catastrophic-backtracking patterns floating around the web.
+// Simple on purpose: catches typos without risking catastrophic backtracking.
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/**
- * Per-block subdocument. Storing `blockedAt` lets read-time enforcement
- * preserve history (messages exchanged BEFORE the block stay visible)
- * while hiding any traffic created AFTER the block was placed.
- */
+// blockedAt lets us keep messages from before the block visible and hide newer ones.
 const blockedUserSchema = new Schema(
   {
     user: {
@@ -82,7 +77,7 @@ const userSchema = new Schema(
       type: String,
       required: [true, 'Password is required'],
       minlength: [PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`],
-      // Critical: never returned by default. Callers must opt-in via `.select('+password')`.
+      // Never returned unless a query asks for .select('+password').
       select: false,
     },
     displayName: {
@@ -131,10 +126,8 @@ const userSchema = new Schema(
   },
 );
 
-// Mongoose 9 pre-hook: no `next` parameter — return a promise instead.
 userSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
-  // Cost 12 ≈ 250 ms on commodity hardware — strong against GPU brute force.
   this.password = await bcrypt.hash(this.password, 12);
 });
 
@@ -149,16 +142,10 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
   return obj;
 };
 
-// Read-side hot-path: "find every user who has me in their block list".
-// Used by `getConversations` to suppress chats where the other party
-// blocked the viewer. A direct index on the embedded user id keeps this
-// query selective even as the user base grows.
+// Finds users who blocked the viewer when listing conversations.
 userSchema.index({ 'blockedUsers.user': 1 });
 
-// Hot-path index for the Message post-save hook (STEP 10): "of these
-// recipients, who has muted this conversation?". Without this index the
-// hook degrades to a COLLSCAN per message send.
+// Used by the Message post-save hook on every send.
 userSchema.index({ mutedConversations: 1 });
 
 export const User = model('User', userSchema);
-export default User;

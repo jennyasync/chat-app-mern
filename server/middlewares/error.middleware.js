@@ -1,11 +1,6 @@
 import { isProduction } from '../config/env.js';
 
-/**
- * Translates internal/library-specific errors into safe HTTP responses.
- * Production payloads NEVER leak stack traces or Mongoose internals.
- */
 const mapKnownError = (err) => {
-  // Mongoose schema validation
   if (err.name === 'ValidationError') {
     const fields = Object.values(err.errors ?? {}).map((e) => ({
       field: e.path,
@@ -18,17 +13,15 @@ const mapKnownError = (err) => {
     };
   }
 
-  // Bad ObjectId / type cast
   if (err.name === 'CastError') {
     return { status: 400, message: `Invalid value for field "${err.path}"` };
   }
 
-  // Unique index violation — generic message avoids field enumeration
+  // Duplicate key; generic message so we don't reveal which field already exists.
   if (err.name === 'MongoServerError' && err.code === 11000) {
     return { status: 409, message: 'Resource already exists' };
   }
 
-  // JWT
   if (err.name === 'JsonWebTokenError') {
     return { status: 401, message: 'Invalid token' };
   }
@@ -49,7 +42,7 @@ export const errorHandler = (err, req, res, _next) => {
   const message = mapped?.message ?? err.message ?? 'Internal Server Error';
 
   if (status >= 500) {
-    console.error(`[error] ${req.method} ${req.originalUrl} →`, err);
+    console.error(`[error] ${req.method} ${req.originalUrl}`, err);
   }
 
   const payload = { success: false, message };

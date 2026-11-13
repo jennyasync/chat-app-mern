@@ -40,13 +40,10 @@ export const MESSAGE_DELETED_FOR = Object.freeze({
   EVERYONE: 'everyone',
 });
 
-// Storage cap + DoS protection. Long-form content belongs in attachments.
 export const MESSAGE_TEXT_MAX_LENGTH = 4000;
-// Single grapheme cluster + ZWJ sequence comfortably fits in 4 chars.
+// Enough for one emoji, including ZWJ sequences.
 export const REACTION_EMOJI_MAX_LENGTH = 4;
-// Edit window: 15 minutes from message creation.
 export const MESSAGE_EDIT_WINDOW_MS = 15 * 60 * 1000;
-// Delete-for-everyone window for the sender: 5 minutes from creation.
 export const MESSAGE_DELETE_FOR_EVERYONE_WINDOW_MS = 5 * 60 * 1000;
 
 export const GROUP_NAME_MAX_LENGTH = 50;
@@ -61,18 +58,10 @@ export const NOTIFICATION_TYPES = Object.freeze({
   ADMIN_ACTION: 'adminAction',
 });
 
-// Hard cap on the rendered preview text. Browser Notification bodies
-// truncate beyond ~150 chars anyway; 200 leaves room for short
-// templates ("{actor}: {preview}") without the preview being clipped
-// to nothing for normal display names.
 export const NOTIFICATION_TEXT_MAX_LENGTH = 200;
 
-// Anti-spam collapse window for "new message" notifications. Inside
-// this window, repeated messages from the same conversation overwrite
-// the existing unread notification instead of stacking new rows.
+// Messages in the same chat within this window update one notification instead of stacking.
 export const NOTIFICATION_COLLAPSE_WINDOW_MS = 30 * 1000;
-
-/* -------------------- STEP 18 — Reports & moderation -------------------- */
 
 export const REPORT_TARGET_TYPES = Object.freeze({
   USER: 'user',
@@ -94,22 +83,12 @@ export const REPORT_STATUSES = Object.freeze({
   ACTION_TAKEN: 'actionTaken',
 });
 
-// Hard cap on free-text fields. Same length on both sides keeps the
-// document predictable and matches the moderator UI textarea limit.
 export const REPORT_DESCRIPTION_MAX_LENGTH = 500;
 export const REPORT_REVIEW_NOTE_MAX_LENGTH = 500;
 
-// Anti-weaponisation guard: the SAME reporter cannot file a fresh
-// report against the SAME target inside this window. Limits brigading
-// patterns where coordinated accounts spam a target's report queue.
+// A reporter can't report the same target again within this window.
 export const REPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
-/**
- * Closed enum of admin-side actions tracked by `AdminAuditLog`. Adding
- * a new admin operation requires touching this enum AND the writer in
- * `adminAudit.js` — intentional friction so the audit trail can never
- * silently drop a class of action.
- */
 export const ADMIN_AUDIT_ACTIONS = Object.freeze({
   USER_SUSPEND: 'user.suspend',
   USER_REINSTATE: 'user.reinstate',

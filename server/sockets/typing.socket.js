@@ -4,25 +4,11 @@ import { convRoom, userRoom } from './rooms.js';
 
 const { Types } = mongoose;
 
-/**
- * Throttle / safety-net constants. Pulled out as named values so they
- * can be tuned (or exported for tests) without code archaeology.
- */
-const TYPING_THROTTLE_MS = 2000; // suppress re-broadcast within 2s
-const TYPING_AUTO_STOP_MS = 5000; // server-side stop if client goes silent
+const TYPING_THROTTLE_MS = 2000;
+// Send typing:stop ourselves if the client goes quiet.
+const TYPING_AUTO_STOP_MS = 5000;
 
-/**
- * Per-(conversation, user) state for the typing indicator.
- *
- *   key   = `${conversationId}:${userId}`
- *   value = { lastBroadcastAt: number, autoStopTimer: NodeJS.Timeout|null }
- *
- * Why in-memory (not Redis): typing state is ephemeral and only
- * meaningful for the lifetime of a single process. If horizontal
- * scaling is added later, this map becomes the seam to swap with a
- * sticky-routing or Redis-backed store — its public surface is small
- * (`getEntry`, `clearEntry`, `clearAllForUser`).
- */
+// "conversationId:userId" -> { lastBroadcastAt, autoStopTimer }
 const typingState = new Map();
 
 const stateKey = (conversationId, userId) => `${conversationId}:${userId}`;
@@ -38,35 +24,20 @@ const clearEntry = (key) => {
   typingState.delete(key);
 };
 
-/**
- * Drop every typing entry tied to a given user — invoked when the
- * user's LAST socket disconnects so other participants see the
- * indicator vanish even if the client never sent `typing:stop`.
- */
+// Called when the user's last socket disconnects, so the indicator doesn't get stuck.
 export const clearTypingForUser = (io, userId) => {
   const suffix = `:${String(userId)}`;
   for (const key of typingState.keys()) {
     if (!key.endsWith(suffix)) continue;
     const conversationId = key.slice(0, key.length - suffix.length);
     clearEntry(key);
-    // Best-effort fan-out — recipients should treat `typing:stop` as
-    // idempotent so duplicate emits are harmless.
     io.to(convRoom(conversationId))
       .except(userRoom(userId))
       .emit('typing:stop', { conversationId, userId: String(userId) });
   }
 };
 
-/**
- * Validate the payload coming off the wire and confirm the sender is
- * actually a participant of the target conversation. Returns the
- * normalised conversation id, or `null` if validation fails (caller
- * should silently drop — typing is fire-and-forget, no ack channel).
- *
- * NOTE: We hit the DB on every typing event. That's intentional — it
- * means a user removed from a group cannot keep injecting typing into
- * the room. The query is `_id` + indexed `participants`, so it's cheap.
- */
+// Checks membership on every event so a user removed from a group can't keep sending typing events.
 const validateTypingPayload = async (payload, userId) => {
   if (!payload || typeof payload !== 'object') return null;
   const { conversationId } = payload;
@@ -80,13 +51,6 @@ const validateTypingPayload = async (payload, userId) => {
   return conversation ? conversationId : null;
 };
 
-/**
- * Wire `typing:start` and `typing:stop` for a single socket.
- *
- * Server is the single source of truth for room membership and the
- * throttle window. Clients only declare *intent* — we decide whether
- * (and to whom) the event is broadcast.
- */
 export const registerTypingHandlers = (io, socket) => {
   const userId = String(socket.user._id);
 
@@ -99,9 +63,6 @@ export const registerTypingHandlers = (io, socket) => {
       const now = Date.now();
       const existing = typingState.get(key);
 
-      // Always refresh the safety-net auto-stop timer — every keystroke
-      // resets the 5-second silence window so a chatty user never
-      // accidentally triggers the stop event.
       if (existing?.autoStopTimer) clearTimeout(existing.autoStopTimer);
 
       const autoStopTimer = setTimeout(() => {
@@ -111,9 +72,7 @@ export const registerTypingHandlers = (io, socket) => {
           .emit('typing:stop', { conversationId, userId });
       }, TYPING_AUTO_STOP_MS);
 
-      // Suppress re-broadcast inside the throttle window. We still
-      // refreshed the auto-stop timer above, so the safety-net stays
-      // aligned with the most recent keystroke.
+      // Throttled: keep the new timer but don't broadcast again yet.
       if (existing && now - existing.lastBroadcastAt < TYPING_THROTTLE_MS) {
         typingState.set(key, {
           lastBroadcastAt: existing.lastBroadcastAt,
@@ -128,7 +87,7 @@ export const registerTypingHandlers = (io, socket) => {
         .except(userRoom(userId))
         .emit('typing:start', { conversationId, userId });
     } catch {
-      // Swallow — typing is best-effort, never crash the socket on it.
+      // Typing is best effort.
     }
   });
 
@@ -141,29 +100,14 @@ export const registerTypingHandlers = (io, socket) => {
       const hadEntry = typingState.has(key);
       clearEntry(key);
 
-      // Only broadcast `typing:stop` if there was an active typing
-      // entry — otherwise we'd flood rooms with no-op stops every time
-      // a focus/blur fires on the composer.
+      // Skip no-op stops, e.g. from a composer blur when the user wasn't typing.
       if (hadEntry) {
         io.to(convRoom(conversationId))
           .except(userRoom(userId))
           .emit('typing:stop', { conversationId, userId });
       }
     } catch {
-      // Same rationale as `typing:start`.
+      // Typing is best effort.
     }
   });
-};
-
-export default registerTypingHandlers;
-
-// Exposed for tests / diagnostics — not part of the public socket surface.
-export const _internals = {
-  typingState,
-  stateKey,
-  TYPING_THROTTLE_MS,
-  TYPING_AUTO_STOP_MS,
-  _reset: () => {
-    for (const key of typingState.keys()) clearEntry(key);
-  },
 };

@@ -20,23 +20,7 @@ import { registerMessageHandlers } from './message.socket.js';
 import { clearActiveForSocket } from './activeConversations.js';
 import { convRoom, userRoom } from './rooms.js';
 
-/**
- * Wire connection / disconnection lifecycle and the per-feature event
- * handlers (presence, typing, messaging, groups). This file owns the
- * connection lifecycle so that the membership and presence invariants
- * are enforced in exactly one place. Per-feature behaviour lives in
- * its own module under `sockets/`.
- *
- * Room model recap (see `sockets/rooms.js`):
- *   - `user:<userId>`         — every device of one user
- *   - `conv:<conversationId>` — every participant of a chat
- *
- * The server is the single source of truth for room membership. We
- * NEVER call `socket.join(client-supplied room)` — every join is the
- * result of a DB-verified participant lookup, which makes it
- * impossible for a malicious client to subscribe to a room they don't
- * belong to.
- */
+// Rooms are only joined from DB lookups, never from a room name the client sends.
 export const registerSocketHandlers = (io) => {
   io.use(socketAuthMiddleware);
 
@@ -46,14 +30,8 @@ export const registerSocketHandlers = (io) => {
     try {
       addUserSocket(userId, socket.id);
 
-      // Personal room — used for direct fan-out to all of a user's
-      // devices (e.g. notifications, admin force-disconnect) and for
-      // `.except(userRoom(...))` exclusions on broadcasts they triggered.
       socket.join(userRoom(userId));
 
-      // Auto-subscribe to every conversation room the user belongs to.
-      // Pulling only `_id` keeps the payload tiny on users who are in
-      // hundreds of conversations.
       const conversations = await Conversation.find(
         { participants: userId, isActive: true },
         '_id',
@@ -62,9 +40,6 @@ export const registerSocketHandlers = (io) => {
       const roomNames = conversations.map((c) => convRoom(c._id));
       if (roomNames.length > 0) socket.join(roomNames);
 
-      // Flip presence flag and read the privacy preference in one
-      // round-trip. `findByIdAndUpdate` keeps us off the full mongoose
-      // validation pipeline on a hot path that only touches two fields.
       const updated = await User.findByIdAndUpdate(
         userId,
         { isOnline: true, lastSeenAt: new Date() },
@@ -74,25 +49,11 @@ export const registerSocketHandlers = (io) => {
       const showOnlineStatus =
         updated?.preferences?.showOnlineStatus !== false;
 
-      // Cache on the socket so the disconnect handler doesn't need a
-      // second lookup. Acceptable staleness window: from connect to
-      // disconnect of THIS socket — toggling the setting takes effect
-      // on the next socket lifecycle event, which matches REST behaviour.
-      socket.data.showOnlineStatus = showOnlineStatus;
-
-      // STEP 14 — privacy-aware presence broadcast. Skipped entirely
-      // when the user has opted out of `showOnlineStatus`.
       broadcastUserOnline(io, userId, roomNames, showOnlineStatus);
 
-      // Per-feature handlers. Each module is responsible for its own
-      // payload validation, authorisation and error handling so a bug
-      // in one feature can't bring down the whole socket layer.
-      registerPresenceHandlers(io, socket); // STEP 14
-      registerTypingHandlers(io, socket); // STEP 14
-      registerMessageHandlers(io, socket); // STEP 15
-      // Group lifecycle events are emitted from REST controllers via
-      // helpers in `sockets/group.socket.js` — there is no per-socket
-      // listener to register here.
+      registerPresenceHandlers(io, socket);
+      registerTypingHandlers(io, socket);
+      registerMessageHandlers(io, socket);
 
       if (!isProduction) {
         console.log(
@@ -100,10 +61,7 @@ export const registerSocketHandlers = (io) => {
         );
       }
     } catch (err) {
-      // Connection-time failures cannot use ack callbacks — the only
-      // way to surface them is to disconnect the socket. We never
-      // forward the raw error to the client (info-leak), only a
-      // generic reason that the client can map to a retry/login flow.
+      // No ack exists at connect time, so report a generic error and drop the socket.
       console.error('[socket] connection setup failed:', err);
       socket.emit('server:error', { message: 'Connection setup failed' });
       socket.disconnect(true);
@@ -112,16 +70,11 @@ export const registerSocketHandlers = (io) => {
 
     socket.on('disconnect', async (reason) => {
       try {
-        // Drop any "chat window open" claim this socket held so the
-        // notification suppression refcount stays balanced even when
-        // the client never sent an explicit `conversation:close`.
         clearActiveForSocket(socket);
 
         const remaining = removeUserSocket(userId, socket.id);
 
-        // Only the LAST socket dropping flips the user offline. While
-        // any other tab/device is still connected, presence stays on
-        // and typing state for those other tabs remains valid.
+        // Only go offline when the user's last tab disconnects.
         if (remaining === 0) {
           const lastSeenAt = new Date();
           await User.findByIdAndUpdate(userId, {
@@ -129,20 +82,14 @@ export const registerSocketHandlers = (io) => {
             lastSeenAt,
           });
 
-          // Re-derive room list from DB. Using `socket.rooms` here
-          // would be unreliable: by the time `disconnect` fires,
-          // Socket.io has already cleared this socket's room set.
+          // socket.rooms is already empty by the time disconnect fires.
           const conversations = await Conversation.find(
             { participants: userId, isActive: true },
             '_id',
           ).lean();
           const roomNames = conversations.map((c) => convRoom(c._id));
 
-          // Re-read the privacy preference rather than reusing the
-          // cached value — the user may have toggled the setting after
-          // connecting from this socket. Falls back to `true` if the
-          // user document is gone (deleted) so we don't strand other
-          // participants showing them as eternally online.
+          // Re-read in case the setting changed since this socket connected.
           const showOnlineStatus = await getShowOnlineStatus(userId);
 
           broadcastUserOffline(
@@ -153,9 +100,6 @@ export const registerSocketHandlers = (io) => {
             showOnlineStatus,
           );
 
-          // Drop any typing entries this user still owns. Without this
-          // a crashed client (no `typing:stop` sent) would leave its
-          // indicator stuck for the 5-second auto-stop fallback.
           clearTypingForUser(io, userId);
         }
 
@@ -170,9 +114,6 @@ export const registerSocketHandlers = (io) => {
     });
   });
 
-  // Engine-level errors (handshake rejected by middleware, transport
-  // upgrade failures). Logged centrally so a flood of bad-token
-  // attempts is visible in the server logs.
   io.engine.on('connection_error', (err) => {
     if (!isProduction) {
       console.warn(
@@ -181,5 +122,3 @@ export const registerSocketHandlers = (io) => {
     }
   });
 };
-
-export default registerSocketHandlers;

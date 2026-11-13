@@ -10,11 +10,7 @@ import {
 
 const { Schema, model } = mongoose;
 
-/**
- * Denormalized snapshot of the most recent message. Stored on the
- * conversation so the sidebar list endpoint can render the preview line
- * without a JOIN/aggregation per row. Kept intentionally tiny.
- */
+// Copy of the latest message so the sidebar can show a preview without a lookup per row.
 const lastMessageSchema = new Schema(
   {
     text: { type: String, default: '' },
@@ -75,16 +71,10 @@ const conversationSchema = new Schema(
       ref: 'User',
       required: [true, 'createdBy is required'],
     },
-    // Deterministic uniqueness key for DIRECT conversations: the two
-    // participant ids sorted and joined. A partial unique index on this
-    // field (see below) makes it impossible for a race between two
-    // concurrent `POST /conversations/direct` calls to create two rows
-    // for the same pair — the `findOne` guard alone cannot. Left unset
-    // (and therefore exempt from the index) for group conversations.
+    // Sorted participant ids for direct chats; the unique index stops two parallel requests creating duplicates.
     directKey: { type: String, default: undefined },
     lastMessage: { type: lastMessageSchema, default: null },
-    // Map<userId, unreadCount>. Map (not plain object) gives us $inc on
-    // dynamic keys and protects against prototype pollution by design.
+    // userId -> unread count. A Map allows $inc on dynamic keys and avoids prototype pollution.
     unreadCounts: {
       type: Map,
       of: { type: Number, min: 0, default: 0 },
@@ -95,12 +85,9 @@ const conversationSchema = new Schema(
   { timestamps: true },
 );
 
-// Primary access pattern: "list my conversations sorted by recent activity".
 conversationSchema.index({ participants: 1, updatedAt: -1 });
 
-// One direct conversation per unordered participant pair. Partial so it
-// only constrains direct chats (group rows leave `directKey` unset and
-// are skipped by the index entirely).
+// Partial so group chats (no directKey) are not affected.
 conversationSchema.index(
   { directKey: 1 },
   {
@@ -109,28 +96,20 @@ conversationSchema.index(
   },
 );
 
-/**
- * Mongoose 9 pre-hook: no `next` parameter — return a promise (or throw).
- * Cross-field invariants that the per-field validators cannot express.
- */
 conversationSchema.pre('save', async function () {
   if (this.type === CONVERSATION_TYPES.DIRECT) {
     if (this.participants.length !== DIRECT_PARTICIPANTS) {
       throw new Error('Direct conversation must have exactly 2 participants');
     }
-    // Direct chats have no group-only metadata.
     this.name = '';
     this.avatarUrl = '';
     this.avatarPublicId = '';
     this.admins = [];
-    // Deterministic, order-independent key backing the unique index.
     this.directKey = this.participants
       .map((p) => p.toString())
       .sort()
       .join('_');
   } else {
-    // Group rows must never carry a directKey (keeps them out of the
-    // partial unique index).
     this.directKey = undefined;
   }
 
@@ -147,13 +126,10 @@ conversationSchema.pre('save', async function () {
       );
     }
 
-    // Admins must be a subset of participants. Silently prune to keep the
-    // invariant rather than throwing — admin removal is a normal operation.
+    // Drop admins who are no longer participants instead of failing the save.
     const participantSet = new Set(this.participants.map((p) => p.toString()));
     this.admins = this.admins.filter((a) => participantSet.has(a.toString()));
 
-    // Group with zero admins is a dead end — STEP 6 promotes the next
-    // participant. Here we only assert the invariant.
     if (this.admins.length === 0) {
       throw new Error('Group conversation must have at least one admin');
     }
@@ -161,4 +137,3 @@ conversationSchema.pre('save', async function () {
 });
 
 export const Conversation = model('Conversation', conversationSchema);
-export default Conversation;

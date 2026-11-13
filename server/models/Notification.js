@@ -6,16 +6,7 @@ import {
 
 const { Schema, model } = mongoose;
 
-/**
- * Persistent notification row. Stored per-recipient (not per-event) so
- * the inbox view is a flat scan against `recipient` and so a single
- * fan-out can produce N independent rows that recipients dismiss
- * individually.
- *
- * `text` is ALWAYS server-generated from a fixed template — we never
- * accept a raw client string here, otherwise an authenticated client
- * could write arbitrary HTML-shaped content into another user's inbox.
- */
+// One row per recipient. `text` is always built on the server, never taken from the client.
 const notificationSchema = new Schema(
   {
     recipient: {
@@ -29,8 +20,6 @@ const notificationSchema = new Schema(
       enum: Object.values(NOTIFICATION_TYPES),
       required: [true, 'type is required'],
     },
-    // Optional context — present for chat-bound notifications, null for
-    // adminAction / system-style events that have no parent conversation.
     conversationId: {
       type: Schema.Types.ObjectId,
       ref: 'Conversation',
@@ -64,14 +53,9 @@ const notificationSchema = new Schema(
   { timestamps: true },
 );
 
-// Inbox hot-path: "newest unread first for a user". Compound index
-// covers the common ordering (`createdAt DESC`) AND the unread-count
-// query (`{ recipient, isRead: false }`).
 notificationSchema.index({ recipient: 1, isRead: 1, createdAt: -1 });
 
-// Collapse-window lookup: "is there a recent unread `message`-type row
-// for this (recipient, conversation) pair?". Matching the field order
-// of the persistence trigger keeps the query fully covered.
+// Used to find a recent unread message notification to merge into.
 notificationSchema.index({
   recipient: 1,
   conversationId: 1,
@@ -80,4 +64,3 @@ notificationSchema.index({
 });
 
 export const Notification = model('Notification', notificationSchema);
-export default Notification;

@@ -1,15 +1,11 @@
-import mongoose from 'mongoose';
 import { User } from '../models/User.js';
+import { Message } from '../models/Message.js';
 import { ApiError } from '../utils/apiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { generateToken } from '../utils/generateToken.js';
 import { detachUserFromConversations } from '../utils/conversationService.js';
 import { ROLES, USER_STATUS, DELETED_USER_LABEL } from '../utils/constants.js';
 
-/**
- * Strip the password (and any future internal fields) before sending the
- * user document to the client. Single source of truth for user serialization.
- */
 const sanitizeUser = (userDoc) => {
   const obj = userDoc.toObject({ virtuals: true, versionKey: false });
   delete obj.password;
@@ -18,11 +14,8 @@ const sanitizeUser = (userDoc) => {
 
 // POST /api/auth/register
 export const register = asyncHandler(async (req, res) => {
-  // Explicit destructure — never spread req.body to block mass assignment.
   const { username, email, password, displayName } = req.body;
 
-  // Surface uniqueness conflict with a clean 409 instead of relying on the
-  // race-prone duplicate-key error from Mongo.
   const conflict = await User.findOne({ $or: [{ email }, { username }] }).lean();
   if (conflict) {
     throw ApiError.conflict('Email or username is already in use');
@@ -33,7 +26,7 @@ export const register = asyncHandler(async (req, res) => {
     email,
     password,
     displayName,
-    role: ROLES.USER, // Hard-coded — never trust client-provided role.
+    role: ROLES.USER,
   });
 
   const token = generateToken(user._id);
@@ -49,7 +42,7 @@ export const register = asyncHandler(async (req, res) => {
 export const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  // Identical error for "no such user" and "bad password" — kills enumeration.
+  // Same error for unknown email and wrong password to prevent email enumeration.
   const user = await User.findOne({ email }).select('+password');
   const passwordOk = user ? await user.comparePassword(password) : false;
 
@@ -83,7 +76,6 @@ export const getMe = asyncHandler(async (req, res) => {
 
 // PATCH /api/auth/profile
 export const updateProfile = asyncHandler(async (req, res) => {
-  // Whitelist explicitly — anything not in this list is silently dropped.
   const ALLOWED = ['displayName', 'bio', 'avatarUrl', 'avatarPublicId'];
   const updates = {};
   for (const key of ALLOWED) {
@@ -110,53 +102,28 @@ export const updateProfile = asyncHandler(async (req, res) => {
 export const changePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
-  // Re-load with `+password` because protect() strips it by default.
   const user = await User.findById(req.user._id).select('+password');
   if (!user) throw ApiError.unauthorized('User no longer exists');
 
   const ok = await user.comparePassword(currentPassword);
   if (!ok) throw ApiError.unauthorized('Current password is incorrect');
 
-  user.password = newPassword; // pre('save') hook hashes it.
+  user.password = newPassword; // hashed by the pre-save hook
   await user.save();
 
   res.status(200).json({ success: true, message: 'Password changed' });
 });
 
-/**
- * Cascade cleanup for a soft-deleted user. Models that aren't loaded yet
- * (Conversation, Message — added in later STEPS) are skipped gracefully so
- * this STEP runs in isolation. Each side-effect runs in parallel.
- */
-const cascadeUserDeletion = async (userId) => {
-  const tasks = [];
-
-  // Remove from other users' blockedUsers arrays. `blockedUsers` is an
-  // array of `{ user, blockedAt }` subdocs (see User.js), so we must
-  // match and pull by the nested `user` field — matching the bare id
-  // would silently no-op and leave stale references behind.
-  tasks.push(
+const cascadeUserDeletion = (userId) =>
+  Promise.all([
     User.updateMany(
       { 'blockedUsers.user': userId },
       { $pull: { blockedUsers: { user: userId } } },
     ),
-  );
-
-  if (mongoose.models.Conversation) {
-    // Detach with invariant preservation (tombstone solo/sub-2 groups,
-    // promote a new admin when the last one leaves). A plain `$pull`
-    // would leave 1-member "active" groups that throw on the next save.
-    tasks.push(detachUserFromConversations(userId));
-  }
-
-  if (mongoose.models.Message) {
-    const Message = mongoose.models.Message;
-    // Anonymize — keep the message body so chat history stays coherent.
-    tasks.push(Message.updateMany({ sender: userId }, { $set: { sender: null } }));
-  }
-
-  await Promise.all(tasks);
-};
+    detachUserFromConversations(userId),
+    // Keep the messages but drop the sender, so chat history still makes sense.
+    Message.updateMany({ sender: userId }, { $set: { sender: null } }),
+  ]);
 
 // DELETE /api/auth/account
 export const deleteAccount = asyncHandler(async (req, res) => {
@@ -168,7 +135,7 @@ export const deleteAccount = asyncHandler(async (req, res) => {
   const ok = await user.comparePassword(password);
   if (!ok) throw ApiError.unauthorized('Password confirmation failed');
 
-  // Redact PII while keeping the document so foreign keys stay valid.
+  // Soft delete: wipe personal data but keep the document so references stay valid.
   const tombstoneId = user._id.toString().slice(-6);
   user.status = USER_STATUS.DELETED;
   user.email = `deleted_${tombstoneId}@deleted.local`;

@@ -3,15 +3,7 @@ import { env } from '../config/env.js';
 import { User } from '../models/User.js';
 import { USER_STATUS } from '../utils/constants.js';
 
-/**
- * Pull a JWT off the handshake. Two transports are accepted, in order:
- *   1. `socket.handshake.auth.token`  (preferred — set by `io({ auth })`).
- *   2. `Authorization: Bearer <t>`    (fallback for non-browser clients).
- *
- * Cookies and query strings are intentionally NOT supported. Mirroring
- * the REST contract (Bearer header only) keeps the token surface tiny
- * and removes CSRF concerns from the WebSocket transport.
- */
+// Reads handshake.auth.token first, then a Bearer header for non-browser clients.
 const extractToken = (socket) => {
   const fromAuth = socket.handshake?.auth?.token;
   if (typeof fromAuth === 'string' && fromAuth.trim()) {
@@ -27,22 +19,7 @@ const extractToken = (socket) => {
   return null;
 };
 
-/**
- * Socket.io connection-time authentication.
- *
- * Runs ONCE per socket, during the handshake. If `next` is called with
- * an Error, Socket.io aborts the connection before any event handler
- * fires — so downstream handlers can safely assume `socket.user` exists.
- *
- * Security notes:
- *   - The user is re-fetched from the database (not trusted from the
- *     token claims) so that `status` changes (suspend / delete) take
- *     effect on the next connection without waiting for token expiry.
- *   - Live sockets of suspended users are killed by the admin layer
- *     (STEP 17) via `io.to('user:<id>').disconnectSockets(true)`.
- *   - Error messages are intentionally generic ("Unauthorized") to
- *     avoid leaking which step failed (token vs user vs status).
- */
+// Always "Unauthorized" so the client can't tell which check failed.
 export const socketAuthMiddleware = async (socket, next) => {
   try {
     const token = extractToken(socket);
@@ -66,9 +43,6 @@ export const socketAuthMiddleware = async (socket, next) => {
       return next(new Error('Unauthorized'));
     }
 
-    // Attach the minimum surface the handlers need. Anything else
-    // (preferences, blocked lists, etc.) is fetched on demand to avoid
-    // serving stale data from the handshake snapshot.
     socket.user = {
       _id: String(user._id),
       username: user.username,
@@ -81,5 +55,3 @@ export const socketAuthMiddleware = async (socket, next) => {
     return next(new Error('Unauthorized'));
   }
 };
-
-export default socketAuthMiddleware;

@@ -59,11 +59,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
     replyTo,
   });
 
-  // Fan out to every device in the conversation room AND trigger the
-  // notification dispatch for offline / unfocused recipients. REST has
-  // no originating socket id, so we cannot exclude one — the calling
-  // device will receive the same payload via WebSocket and is expected
-  // to dedupe by `_id` (matches the optimistic-UI contract).
+  // No socket to exclude over REST, so the sender's client dedupes by _id.
   const io = req.app.get('io');
   if (io) {
     broadcastNewMessage(io, { message }).catch((err) => {
@@ -109,8 +105,6 @@ export const deleteMessageController = asyncHandler(async (req, res) => {
   if (result.scope === 'self') {
     if (io) {
       try {
-        // 'self' scope only reaches the actor's other devices — never the
-        // rest of the conversation. The broadcaster enforces this routing.
         broadcastDeletedMessage(io, {
           conversationId,
           messageId: req.params.id,
@@ -138,9 +132,7 @@ export const deleteMessageController = asyncHandler(async (req, res) => {
     }
   }
 
-  // Permanent delete: orphaned Cloudinary assets become billable storage
-  // forever. Fire-and-forget so the response is not blocked by Cloudinary
-  // latency, and any failure is logged inside `safeDestroy` itself.
+  // Not awaited so the response doesn't wait on Cloudinary.
   if (result.imagePublicId) {
     safeDestroy(result.imagePublicId);
   }

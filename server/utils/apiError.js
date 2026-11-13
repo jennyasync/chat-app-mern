@@ -1,7 +1,3 @@
-/**
- * Operational HTTP error. Carries a status code so the global error
- * handler can map it to a proper response without leaking internals.
- */
 export class ApiError extends Error {
   constructor(statusCode, message, { code, details } = {}) {
     super(message);

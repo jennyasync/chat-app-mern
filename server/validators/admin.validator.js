@@ -8,11 +8,7 @@ import {
   REPORT_REVIEW_NOTE_MAX_LENGTH,
 } from '../utils/constants.js';
 
-/**
- * Admin endpoints accept a deliberately tiny status surface — `deleted`
- * is a tombstone driven by the user-initiated delete flow and the
- * admin hard-delete cascade, so it is NEVER directly settable.
- */
+// `deleted` is only set by the delete flows, never directly by an admin.
 const ADMIN_SETTABLE_STATUSES = Object.freeze([
   USER_STATUS.ACTIVE,
   USER_STATUS.SUSPENDED,
@@ -20,12 +16,6 @@ const ADMIN_SETTABLE_STATUSES = Object.freeze([
 
 const ADMIN_SETTABLE_ROLES = Object.freeze([ROLES.USER, ROLES.ADMIN]);
 
-/**
- * Search guard for the admin user list. The free-text `q` is bounded
- * tightly so the downstream `$regex` (built with `escapeRegex`) cannot
- * be coerced into a pathological pattern, and so the request body
- * stays small enough to keep the surface predictable for log audits.
- */
 export const validateListUsers = [
   query('status')
     .optional()
@@ -70,9 +60,7 @@ export const validateUpdateUserRole = [
 
 const REPORT_TARGET_VALUES = Object.values(REPORT_TARGET_TYPES);
 
-// Reverting a report back to `pending` would erase a moderator
-// decision without a real audit hook — disallowed at the validator
-// boundary so the controller never sees the bad state.
+// A reviewed report can't go back to pending.
 const REPORT_REVIEWABLE_STATUSES = Object.values(REPORT_STATUSES).filter(
   (s) => s !== REPORT_STATUSES.PENDING,
 );

@@ -32,29 +32,11 @@ const isValidObjectId = (value) =>
   Types.ObjectId.isValid(value) &&
   /^[a-f0-9]{24}$/i.test(value);
 
-/**
- * Public sender shape exposed to clients. We never include email, role,
- * status, preferences, or any field that isn't strictly needed to render
- * a message bubble.
- */
 const SENDER_PROJECTION = '_id username displayName avatarUrl';
 
-/**
- * Fields exposed for a quoted (`replyTo`) message. We never include
- * `hiddenFor`/`readBy`/`reactions` here — a reply preview only needs the
- * author, kind, and a short body to render the quote bar. `deletedFor`
- * lets the client render "deleted message" instead of stale text.
- */
 const REPLY_PROJECTION = '_id type text imageUrl deletedFor sender createdAt';
 
-/**
- * Populate options shared by every path that returns a message to the
- * client. `sender` powers the bubble identity; `replyTo` (with its own
- * sender) powers the quoted-reply preview. Without the `replyTo` populate
- * the client receives a bare ObjectId and the quote bar silently vanishes
- * after the message round-trips through the server (send ack, history
- * fetch, edit, etc.).
- */
+// Without populating replyTo the client only gets an id and can't show the quoted message.
 const MESSAGE_POPULATE = [
   { path: 'sender', select: SENDER_PROJECTION },
   {
@@ -64,14 +46,7 @@ const MESSAGE_POPULATE = [
   },
 ];
 
-/**
- * Strip control characters, neutralize the four HTML "structural" chars
- * (`< > & "`), collapse whitespace, and trim. We NEVER want a server-built
- * system message to end up containing markup-shaped substrings derived
- * from a user-controlled value (display name, group name, etc.) — even
- * though clients render `text` as plain text today, defence-in-depth is
- * cheap here.
- */
+// Strips control chars and < > & " from user-provided names that end up in system messages.
 const sanitizePlainSegment = (value, fallback = '') => {
   if (typeof value !== 'string') return fallback;
   const cleaned = value
@@ -82,12 +57,6 @@ const sanitizePlainSegment = (value, fallback = '') => {
   return cleaned || fallback;
 };
 
-/**
- * Build a server-controlled system-message string. Every variable segment
- * is passed through `sanitizePlainSegment` so user-supplied display names
- * cannot smuggle markup or control characters into the payload, and the
- * final result is hard-capped at MESSAGE_TEXT_MAX_LENGTH.
- */
 export const buildSystemMessageText = (template, vars = {}) => {
   if (typeof template !== 'string') return '';
   const out = template.replace(/\{(\w+)\}/g, (_match, key) =>
@@ -96,16 +65,7 @@ export const buildSystemMessageText = (template, vars = {}) => {
   return out.slice(0, MESSAGE_TEXT_MAX_LENGTH);
 };
 
-/**
- * Persist a system message (`type: 'system'`, `sender: null`). Used by
- * group lifecycle flows: rename, member add/remove, leave, admin
- * promote/demote. The post-save hook on Message will refresh the parent
- * Conversation's `lastMessage` snapshot for free, so the sidebar preview
- * reflects the latest event without any extra plumbing.
- *
- * Unread counts are intentionally NOT bumped by system messages (the
- * post-save hook already short-circuits when `sender` is null).
- */
+// System messages have no sender, so the post-save hook doesn't bump unread counts.
 export const createSystemMessage = async ({ conversationId, text }) => {
   const cid = toIdString(conversationId);
   if (!cid || !isValidObjectId(cid)) {
@@ -125,15 +85,7 @@ export const createSystemMessage = async ({ conversationId, text }) => {
   });
 };
 
-/**
- * Resolve the bidirectional block state between the viewer and the OTHER
- * participant of a direct conversation. Returns the earliest `blockedAt`
- * across both directions — read-time enforcement uses it as the cutoff
- * for hiding messages.
- *
- * Group chats are intentionally exempt: per spec, group context is shared
- * and a block does not silence traffic inside an already-joined group.
- */
+// Blocks only apply to direct chats, not groups.
 const getDirectBlockState = async ({ conversation, viewerId }) => {
   if (!conversation || conversation.type !== CONVERSATION_TYPES.DIRECT) {
     return { otherId: null, cutoffAt: null, viewerBlocked: false, theyBlocked: false };
@@ -148,8 +100,6 @@ const getDirectBlockState = async ({ conversation, viewerId }) => {
     return { otherId: null, cutoffAt: null, viewerBlocked: false, theyBlocked: false };
   }
 
-  // Two parallel queries (`me` and `them`) — could be condensed into one
-  // `$in` query but readability wins over a single round-trip here.
   const [me, them] = await Promise.all([
     User.findById(vid).select('blockedUsers').lean(),
     User.findById(otherId).select('blockedUsers').lean(),
@@ -162,7 +112,7 @@ const getDirectBlockState = async ({ conversation, viewerId }) => {
     (entry) => String(entry?.user) === vid,
   );
 
-  // Earliest cutoff wins so the strictest side dictates visibility.
+  // Earliest block wins, so the stricter side decides what's hidden.
   let cutoffAt = null;
   if (myBlock?.blockedAt) cutoffAt = new Date(myBlock.blockedAt);
   if (theirBlock?.blockedAt) {
@@ -178,14 +128,6 @@ const getDirectBlockState = async ({ conversation, viewerId }) => {
   };
 };
 
-/**
- * Persist a new message after validating the caller's membership in the
- * conversation. Returns the saved message with `sender` populated using
- * the public projection so it's safe to send straight to clients.
- *
- * The post-save hook on the Message model handles `lastMessage` snapshot
- * refresh and `unreadCounts` bumping for every other participant.
- */
 export const createMessage = async ({
   conversationId,
   senderId,
@@ -208,20 +150,16 @@ export const createMessage = async ({
   if (!Object.values(MESSAGE_TYPES).includes(type)) {
     throw ApiError.badRequest('Invalid message type');
   }
-  // System messages are produced by server-side flows (member added/left,
-  // group renamed, etc.), never by an authenticated user request.
+  // Only the server creates system messages.
   if (type === MESSAGE_TYPES.SYSTEM) {
     throw ApiError.forbidden('System messages cannot be created via this API');
   }
 
   const conversation = await Conversation.findById(cid);
   if (!conversation) throw ApiError.notFound('Conversation not found');
-  // Source-of-truth access control: must be a participant to write.
   assertParticipant(conversation, sid);
 
-  // Block enforcement on the WRITE path. We reject 403 in BOTH directions
-  // (I blocked them OR they blocked me) so the channel is symmetrically
-  // closed and impossible to bypass via the client.
+  // Reject in both directions so a block can't be bypassed from the client.
   if (conversation.type === CONVERSATION_TYPES.DIRECT) {
     const { viewerBlocked, theyBlocked } = await getDirectBlockState({
       conversation,
@@ -257,8 +195,6 @@ export const createMessage = async ({
 
   if (type === MESSAGE_TYPES.IMAGE) {
     if (!isAllowedCloudinaryUrl(imageUrl)) {
-      // Anything that isn't a server-issued Cloudinary URL is a forgery
-      // attempt — never let it touch the database.
       throw ApiError.badRequest('Invalid image url');
     }
     payload.imageUrl = imageUrl;
@@ -266,9 +202,7 @@ export const createMessage = async ({
       typeof imagePublicId === 'string' ? imagePublicId : '';
   }
 
-  // replyTo is optional. We verify it points to a real message in the
-  // SAME conversation — quoting an unrelated message would leak content
-  // across conversations the user doesn't belong to.
+  // Must be in the same conversation, or a reply could leak another chat's content.
   if (replyTo) {
     const rid = toIdString(replyTo);
     if (!rid || !isValidObjectId(rid)) {
@@ -285,11 +219,6 @@ export const createMessage = async ({
   return message.populate(MESSAGE_POPULATE);
 };
 
-/**
- * Mark every message in the conversation as read by `userId` and reset
- * their unread counter to zero. Idempotent: messages already containing
- * a readBy entry for the user are not touched again.
- */
 export const markConversationAsRead = async ({ conversationId, userId }) => {
   const cid = toIdString(conversationId);
   const uid = toIdString(userId);
@@ -308,10 +237,7 @@ export const markConversationAsRead = async ({ conversationId, userId }) => {
   const result = await Message.updateMany(
     {
       conversationId: cid,
-      // Don't mark your own messages as read — meaningless and inflates the
-      // readBy array unnecessarily.
       sender: { $ne: new Types.ObjectId(uid) },
-      // Idempotent: skip messages already read by this user.
       'readBy.user': { $ne: new Types.ObjectId(uid) },
     },
     { $push: { readBy: { user: uid, at: new Date() } } },
@@ -322,19 +248,6 @@ export const markConversationAsRead = async ({ conversationId, userId }) => {
   return { matched: result.matchedCount ?? 0, modified: result.modifiedCount ?? 0 };
 };
 
-/**
- * Authorization gate for editing or deleting a message. Centralizes the
- * "who is allowed to do what, and within what time window" rules so
- * controllers and socket handlers stay thin.
- *
- * Actions:
- *  - 'edit'              — only sender, only text type, only within
- *                          MESSAGE_EDIT_WINDOW_MS of createdAt.
- *  - 'deleteForEveryone' — sender within MESSAGE_DELETE_FOR_EVERYONE_WINDOW_MS,
- *                          OR an admin (passed via `actor`).
- *  - 'deleteForSelf'     — any participant; participant check is the
- *                          caller's responsibility (use assertParticipant).
- */
 export const assertCanModifyMessage = (
   message,
   actor,
@@ -383,8 +296,7 @@ export const assertCanModifyMessage = (
     }
 
     case 'deleteForSelf':
-      // Any participant may hide a message from their own view. The caller
-      // is responsible for asserting participant membership beforehand.
+      // Caller has already checked that the actor is a participant.
       return;
 
     default:
@@ -392,16 +304,7 @@ export const assertCanModifyMessage = (
   }
 };
 
-/**
- * Cursor-based pagination for chat history. Cursor pagination outperforms
- * offset for append-only streams: stable in the face of concurrent inserts
- * and free of the deepening-skip cost as users scroll back through years
- * of history.
- *
- * Returns messages strictly OLDER than `before` (or the most recent ones
- * when no cursor is supplied). Caller-controlled `limit` is clamped at the
- * route level to defuse single-request data exfiltration.
- */
+// Cursor pagination (by _id) so new messages arriving don't shift the pages.
 export const listMessages = async ({
   conversationId,
   userId,
@@ -425,14 +328,10 @@ export const listMessages = async ({
 
   const filter = {
     conversationId: cid,
-    // Per-user "delete for self" tombstones — filtered out of the requester's
-    // view without destroying the row for the rest of the participants.
     hiddenFor: { $ne: new Types.ObjectId(uid) },
   };
 
-  // Direct-conversation block filter: hide messages from the OTHER party
-  // that were created AFTER the block was placed. History before the
-  // cutoff stays intact (preserves context). Group chats are exempt.
+  // Hide the other person's messages sent after the block; older history stays.
   if (conversation.type === CONVERSATION_TYPES.DIRECT) {
     const { otherId, cutoffAt } = await getDirectBlockState({
       conversation,
@@ -456,7 +355,7 @@ export const listMessages = async ({
 
   const safeLimit = Math.min(Math.max(Number(limit) || 30, 1), 50);
 
-  // Fetch limit + 1 so we can compute hasMore without a second count query.
+  // Fetch one extra to know if there's more without a count query.
   const docs = await Message.find(filter)
     .sort({ _id: -1 })
     .limit(safeLimit + 1)
@@ -466,18 +365,11 @@ export const listMessages = async ({
   const sliced = hasMore ? docs.slice(0, safeLimit) : docs;
   const nextCursor = hasMore ? sliced[sliced.length - 1]._id.toString() : null;
 
-  // Reverse so the array is in chronological (asc) order — easier for the
-  // client to render without per-row gymnastics.
   const items = sliced.reverse();
 
   return { items, hasMore, nextCursor };
 };
 
-/**
- * Edit the text body of a message. Authorization rules live in
- * `assertCanModifyMessage` — this function only orchestrates: load → check
- * → mutate → repopulate.
- */
 export const editMessage = async ({ messageId, actor, text }) => {
   const mid = toIdString(messageId);
   if (!mid || !isValidObjectId(mid)) {
@@ -487,7 +379,6 @@ export const editMessage = async ({ messageId, actor, text }) => {
   const message = await Message.findById(mid);
   if (!message) throw ApiError.notFound('Message not found');
 
-  // Participant gate first — non-participants can't even probe message ids.
   const conversation = await Conversation.findById(message.conversationId).select(
     'participants',
   );
@@ -512,15 +403,7 @@ export const editMessage = async ({ messageId, actor, text }) => {
   return message.populate(MESSAGE_POPULATE);
 };
 
-/**
- * Keep `Conversation.lastMessage` honest after a delete-for-everyone.
- *
- * The Message post-save hook only refreshes the snapshot for brand-new
- * messages (`isNew`), so redacting the most recent message would
- * otherwise leave the sidebar preview showing its original text until
- * the next send. We only touch the snapshot when the redacted message is
- * still the conversation's latest — older deletions don't affect it.
- */
+// The post-save hook only handles new messages, so a deleted latest message needs this to clear the preview.
 const refreshLastMessageIfLatest = async (message) => {
   const cid = message.conversationId;
   const latest = await Message.findOne({ conversationId: cid })
@@ -550,13 +433,7 @@ const refreshLastMessageIfLatest = async (message) => {
   });
 };
 
-/**
- * Delete a message either for the requester only ('self') or for every
- * participant ('everyone'). Cloudinary cleanup is intentionally NOT done
- * here — the upload controller (STEP 8) owns that concern; the service
- * just exposes `imagePublicId` on the returned doc so the caller (or
- * socket handler) can trigger a destroy.
- */
+// Returns imagePublicId so the caller can delete the image from Cloudinary.
 export const deleteMessage = async ({ messageId, actor, scope }) => {
   if (scope !== 'self' && scope !== 'everyone') {
     throw ApiError.badRequest("scope must be 'self' or 'everyone'");
@@ -590,33 +467,20 @@ export const deleteMessage = async ({ messageId, actor, scope }) => {
   assertCanModifyMessage(message, actor, { action: 'deleteForEveryone' });
   const previousImagePublicId = message.imagePublicId || '';
   message.deletedFor = MESSAGE_DELETED_FOR.EVERYONE;
-  // Pre-save hook clears text/imageUrl; clear the stored cloudinary id too
-  // so subsequent reads can't replay it.
+  // The pre-save hook clears text and imageUrl.
   message.imagePublicId = '';
   await message.save();
 
-  // Refresh the sidebar preview if this was the conversation's latest
-  // message — otherwise it would keep showing the now-redacted text.
   await refreshLastMessageIfLatest(message);
 
   return {
     scope: 'everyone',
     message: await message.populate(MESSAGE_POPULATE),
-    // Surface to the caller so it can fire-and-forget a Cloudinary destroy.
     imagePublicId: previousImagePublicId,
   };
 };
 
-/**
- * Toggle / replace a single user's reaction on a message. Rules:
- *  - Same emoji as existing → remove (toggle off).
- *  - Different emoji → replace (one reaction per user per message).
- *  - No previous reaction → add.
- *
- * Implemented atomically as one updateOne with array filters where
- * possible, but since we need to branch on the existing entry we read
- * → mutate → save with the model's pre-save dedupe acting as belt + braces.
- */
+// Same emoji removes it, a different emoji replaces it. One reaction per user.
 export const toggleReaction = async ({ messageId, actor, emoji }) => {
   const mid = toIdString(messageId);
   if (!mid || !isValidObjectId(mid)) {
@@ -666,12 +530,6 @@ export const toggleReaction = async ({ messageId, actor, emoji }) => {
   return { action, message };
 };
 
-/**
- * In-conversation full-text-ish search. We never pass raw user input to
- * `$regex` — `escapeRegex` neutralizes metacharacters that could trigger
- * catastrophic backtracking (ReDoS). `i` makes the search case-insensitive
- * which is what users expect from chat search.
- */
 export const searchMessages = async ({
   conversationId,
   userId,
@@ -690,7 +548,7 @@ export const searchMessages = async ({
 
   const term = typeof q === 'string' ? q.trim() : '';
   if (term.length < 2 || term.length > 100) {
-    throw ApiError.badRequest('Search term must be 2–100 characters');
+    throw ApiError.badRequest('Search term must be 2-100 characters');
   }
 
   const conversation = await Conversation.findById(cid).select(
@@ -709,9 +567,7 @@ export const searchMessages = async ({
     hiddenFor: { $ne: new Types.ObjectId(uid) },
   };
 
-  // Mirror `listMessages`: in a direct chat, never surface the other
-  // party's post-block messages through search either, or the cutoff
-  // enforced on history would be trivially bypassable.
+  // Same block cutoff as listMessages, otherwise search would get around it.
   if (conversation.type === CONVERSATION_TYPES.DIRECT) {
     const { otherId, cutoffAt } = await getDirectBlockState({
       conversation,
@@ -731,11 +587,4 @@ export const searchMessages = async ({
     .populate(MESSAGE_POPULATE);
 
   return { items, total: items.length };
-};
-
-export const _internals = {
-  toIdString,
-  isValidObjectId,
-  isAllowedCloudinaryUrl,
-  buildLastMessageSnapshotFields: SENDER_PROJECTION,
 };

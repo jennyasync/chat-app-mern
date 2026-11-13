@@ -7,14 +7,7 @@ import {
   REACTION_EMOJI_MAX_LENGTH,
 } from '../utils/constants.js';
 
-/**
- * Cursor pagination guard for `GET /api/conversations/:id/messages`.
- *
- * `limit` is hard-clamped to 50 to defuse single-shot data exfiltration;
- * `before` is an opaque cursor (the last message id in the previous page)
- * and is validated as an ObjectId BEFORE it reaches Mongo to fail fast on
- * obvious abuse.
- */
+// `before` is the id of the oldest message on the previous page.
 export const validateMessageQuery = [
   query('before')
     .optional({ values: 'falsy' })
@@ -30,12 +23,7 @@ export const validateMessageQuery = [
 
 const SEND_MESSAGE_TYPES = [MESSAGE_TYPES.TEXT, MESSAGE_TYPES.IMAGE];
 
-/**
- * REST-fallback send. The Cloudinary URL whitelist is enforced both
- * here (fail-fast 400 with a structured error map) AND inside
- * `messageService.createMessage` (defence-in-depth — the service is
- * the source of truth for socket-emitted messages too).
- */
+// The service checks the image URL again because sockets skip these validators.
 export const validateSendMessage = [
   body('type')
     .optional()
@@ -51,15 +39,12 @@ export const validateSendMessage = [
     .bail()
     .trim()
     .isLength({ min: 1, max: MESSAGE_TEXT_MAX_LENGTH })
-    .withMessage(`text must be 1–${MESSAGE_TEXT_MAX_LENGTH} characters`),
+    .withMessage(`text must be 1-${MESSAGE_TEXT_MAX_LENGTH} characters`),
   body('imageUrl')
     .if((_value, { req }) => req.body?.type === MESSAGE_TYPES.IMAGE)
     .isURL({ protocols: ['https', 'http'], require_protocol: true })
     .withMessage('imageUrl must be a valid http(s) URL')
     .bail()
-    // Image messages MUST reference our Cloudinary cloud — otherwise a
-    // client could broadcast arbitrary external URLs (tracking pixels,
-    // attacker hosts) to every participant of the conversation.
     .custom(cloudinaryUrlValidator),
   body('imagePublicId')
     .optional({ values: 'falsy' })
@@ -81,7 +66,7 @@ export const validateEditMessage = [
     .bail()
     .trim()
     .isLength({ min: 1, max: MESSAGE_TEXT_MAX_LENGTH })
-    .withMessage(`text must be 1–${MESSAGE_TEXT_MAX_LENGTH} characters`),
+    .withMessage(`text must be 1-${MESSAGE_TEXT_MAX_LENGTH} characters`),
   validate,
 ];
 
@@ -92,11 +77,7 @@ export const validateDeleteMessage = [
   validate,
 ];
 
-/**
- * Reaction toggle. We measure with a code-point spread (`[...trimmed]`)
- * so multi-byte emoji sequences (e.g. ZWJ flags, skin-tone combos) aren't
- * mis-counted by `.length`.
- */
+// Count code points, not .length, so multi-byte emoji aren't over-counted.
 export const validateReaction = [
   body('emoji')
     .isString()
@@ -124,7 +105,7 @@ export const validateSearchQuery = [
     .bail()
     .trim()
     .isLength({ min: 2, max: 100 })
-    .withMessage('q must be 2–100 characters'),
+    .withMessage('q must be 2-100 characters'),
   query('limit')
     .optional()
     .isInt({ min: 1, max: 50 })

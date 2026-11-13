@@ -9,16 +9,7 @@ import {
 const TARGET_TYPE_VALUES = Object.values(REPORT_TARGET_TYPES);
 const REASON_VALUES = Object.values(REPORT_REASONS);
 
-/**
- * Guard for `POST /api/reports`. Shape + length only — the per-target
- * authorisation rules and the 24-hour cooldown live in the service so
- * they stay close to the DB queries that enforce them.
- *
- * `description` is required to be a string when present so a malicious
- * client can't smuggle through `{ description: { $ne: null } }` (the
- * sanitiser middleware already strips operator keys but the explicit
- * `isString` is belt-and-braces).
- */
+// Shape only; target ownership and the 24h cooldown are checked in reportService.
 export const validateReport = [
   body('targetType')
     .exists({ checkFalsy: true })

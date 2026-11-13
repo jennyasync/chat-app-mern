@@ -2,12 +2,7 @@ import mongoose from 'mongoose';
 import { Conversation } from '../models/Conversation.js';
 import { User } from '../models/User.js';
 import { isProduction } from '../config/env.js';
-import {
-  CONVERSATION_TYPES,
-  MESSAGE_TYPES,
-  MESSAGE_DELETED_FOR,
-  USER_STATUS,
-} from '../utils/constants.js';
+import { USER_STATUS } from '../utils/constants.js';
 import {
   createMessage,
   editMessage,
@@ -39,13 +34,7 @@ const isValidObjectId = (value) =>
 const isPlainObject = (value) =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/**
- * Strict payload-shape gate. Drops any unexpected key BEFORE the data
- * leaves the socket layer — defence-in-depth against mass-assignment
- * style attacks (a malicious client tacking on `sender: <other-user>`
- * or `_id: <existing-message>` and hoping a layer downstream forwards
- * it untouched).
- */
+// Drops unexpected keys so a client can't sneak in fields like sender or _id.
 const pickAllowedKeys = (payload, allowed) => {
   if (!isPlainObject(payload)) return null;
   const out = {};
@@ -57,14 +46,7 @@ const pickAllowedKeys = (payload, allowed) => {
   return out;
 };
 
-/**
- * Build an ack-wrapper that:
- *   - Coerces a missing/non-function ack into a no-op so a forgetful
- *     client cannot crash the handler.
- *   - Logs unhandled handler errors in non-prod for diagnostics.
- *   - Always sends the client a generic `{ success: false, message }`
- *     so error shapes remain stable across handlers.
- */
+// Works even if the client didn't pass an ack callback.
 const withAck = (rawAck, label) => {
   const ack = typeof rawAck === 'function' ? rawAck : () => {};
   return {
@@ -78,23 +60,12 @@ const withAck = (rawAck, label) => {
   };
 };
 
-/**
- * Re-read the actor's `status` straight from the DB before any
- * persistence side-effect. The socket cache is set at handshake time and
- * could be minutes old; suspending a user via the admin panel must take
- * effect on their NEXT message attempt, not at the next reconnect.
- */
+// socket.user is from the handshake, so check the DB to catch suspensions immediately.
 const assertActorActive = async (userId) => {
   const fresh = await User.findById(userId).select('status').lean();
   return fresh?.status === USER_STATUS.ACTIVE;
 };
 
-/**
- * Pull the recipient list (everyone but the sender) and the sender's
- * public profile in a single shaped query. Returns `{ recipientIds,
- * fromUser, conversation }` where any field can be `null` if the doc was
- * deleted under us — caller is expected to handle the empty case.
- */
 const loadConversationContext = async (conversationId, senderId) => {
   const [conversation, fromUser] = await Promise.all([
     Conversation.findById(conversationId).select('participants type'),
@@ -107,17 +78,7 @@ const loadConversationContext = async (conversationId, senderId) => {
   return { conversation, recipientIds, fromUser };
 };
 
-/**
- * Notification fan-out for `message:new`. Per spec:
- *   - Recipient must NOT have the chat window currently open (focus
- *     refcount === 0 — see `activeConversations.js`).
- *   - Recipient must NOT have muted the conversation.
- *
- * One DB query batches the mute lookup so the cost is O(1) round-trips
- * regardless of group size. Each surviving recipient also gets a
- * persisted `Notification` row (with 30s collapse) so the inbox view
- * survives reloads — see `persistMessageNotification`.
- */
+// Skips recipients who have the chat open or have muted it.
 const emitNotifications = async ({
   io,
   conversationId,
@@ -127,8 +88,6 @@ const emitNotifications = async ({
 }) => {
   if (!Array.isArray(recipientIds) || recipientIds.length === 0) return;
 
-  // Pre-filter out anyone currently focused on the conversation. Avoids
-  // touching the DB for users we're definitely not notifying.
   const candidateIds = recipientIds.filter(
     (id) => !isUserActiveInConversation(conversationId, id),
   );
@@ -147,8 +106,6 @@ const emitNotifications = async ({
   const messageIdString = message?._id ? String(message._id) : null;
   const fromUserWire = serializePublicUser(fromUser);
 
-  // Persist + emit per recipient. Done in parallel so a slow Mongo
-  // response for one recipient does not delay another's live event.
   await Promise.all(
     candidateIds.map(async (recipientId) => {
       if (mutedSet.has(recipientId)) return;
@@ -165,9 +122,7 @@ const emitNotifications = async ({
         });
         notificationWire = serializeNotification(persisted);
       } catch (err) {
-        // Persistence failure must NOT block the live notification —
-        // the client still gets the toast/sound, only the inbox row is
-        // missing. Log in non-prod for diagnostics.
+        // Still send the live notification even if saving it failed.
         if (!isProduction) {
           console.warn('[emitNotifications] persist failed:', err?.message || err);
         }
@@ -183,20 +138,8 @@ const emitNotifications = async ({
   );
 };
 
-/* ---------- Broadcaster helpers ---------- */
-/* Exported so REST controllers (message.controller.js, conversation.controller.js)
- * can reuse the exact same fan-out logic. The socket handlers below pass
- * `excludeSocketId` to suppress double-rendering on the originating tab;
- * REST callers omit it. */
-
-/**
- * Emit `message:new` to every socket in the conversation room (excluding
- * the originating socket if any) and trigger the notification fan-out.
- *
- * `message` may be a Mongoose doc OR a pre-serialized object — we always
- * pass it through `serializeMessage` so `hiddenFor` is stripped no matter
- * what the caller had on hand.
- */
+// Broadcast helpers are shared with the REST controllers.
+// Socket handlers pass excludeSocketId because the sender already gets the result in the ack.
 export const broadcastNewMessage = async (
   io,
   { message, conversation = null, fromUser = null, excludeSocketId = null },
@@ -210,8 +153,7 @@ export const broadcastNewMessage = async (
     : io.to(convRoom(conversationId));
   target.emit('message:new', wire);
 
-  // Resolve sender + recipient ids if the caller didn't already have
-  // them. System messages (sender === null) skip the notification path.
+  // System messages have no sender and don't notify anyone.
   const senderId = wire?.sender?._id ? String(wire.sender._id) : null;
   if (!senderId) return;
 
@@ -245,14 +187,7 @@ export const broadcastEditedMessage = (io, { message, excludeSocketId = null }) 
   target.emit('message:edited', wire);
 };
 
-/**
- * Emit `message:deleted` for either scope:
- *   - 'everyone' → fan out to the whole conversation room so every UI
- *                  redacts the bubble.
- *   - 'self'     → fan out ONLY to the requester's user room (their
- *                  other devices need to drop the bubble too); do NOT
- *                  reach the rest of the conversation.
- */
+// 'self' deletes only go to the requester's other devices.
 export const broadcastDeletedMessage = (
   io,
   { conversationId, messageId, scope, actorUserId = null, excludeSocketId = null },
@@ -295,11 +230,7 @@ export const broadcastReactionUpdated = (
     });
 };
 
-/**
- * Emit `conversation:readBy` to other participants so their bubbles
- * upgrade to the double-tick state. Privacy gate: callers MUST resolve
- * `showReadReceipts` BEFORE invoking — this helper just fans out.
- */
+// Callers must check the showReadReceipts preference first.
 export const broadcastReadReceipt = (
   io,
   { conversationId, userId, readAt, excludeSocketId = null },
@@ -315,8 +246,6 @@ export const broadcastReadReceipt = (
     : io.to(convRoom(conversationId));
   target.emit('conversation:readBy', payload);
 };
-
-/* ---------- Per-socket event handlers ---------- */
 
 const SEND_KEYS = [
   'conversationId',
@@ -335,11 +264,7 @@ const CONV_ID_KEYS = ['conversationId'];
 export const registerMessageHandlers = (io, socket) => {
   const userId = String(socket.user._id);
 
-  /**
-   * `message:send` — primary write path. Persists, broadcasts, and
-   * triggers notifications. Returns the persisted message + clientTempId
-   * via ack so the originating tab can reconcile its optimistic bubble.
-   */
+  // clientTempId is echoed back so the client can replace its optimistic message.
   socket.on('message:send', async (raw, rawAck) => {
     const ack = withAck(rawAck, 'message:send');
     try {
@@ -354,9 +279,6 @@ export const registerMessageHandlers = (io, socket) => {
           ? payload.clientTempId
           : null;
 
-      // Re-check status from DB, NOT from the cached `socket.user`.
-      // Suspending a user must close their write surface immediately,
-      // even if their socket is still connected.
       if (!(await assertActorActive(userId))) {
         return ack.failure('Account is not active');
       }
@@ -371,8 +293,6 @@ export const registerMessageHandlers = (io, socket) => {
         replyTo: payload.replyTo ?? null,
       });
 
-      // Other-device fan-out + notification dispatch. Sender's originating
-      // socket is excluded — it gets the persisted message via the ack.
       await broadcastNewMessage(io, {
         message: persisted,
         excludeSocketId: socket.id,
@@ -384,18 +304,12 @@ export const registerMessageHandlers = (io, socket) => {
       );
       return ack.success({ message: wire });
     } catch (err) {
-      // Service-layer ApiError messages are safe to surface (they're
-      // user-facing strings like "You have blocked this user"). Anything
-      // else collapses to a generic failure.
+      // ApiError messages are safe to show; anything else gets a generic message.
       const message = err?.statusCode ? err.message : 'Failed to send message';
       return ack.failure(message, err);
     }
   });
 
-  /**
-   * `message:edit` — text-only, sender-only, within the edit window.
-   * Authorisation rules live in `assertCanModifyMessage` (service).
-   */
   socket.on('message:edit', async (raw, rawAck) => {
     const ack = withAck(rawAck, 'message:edit');
     try {
@@ -427,12 +341,6 @@ export const registerMessageHandlers = (io, socket) => {
     }
   });
 
-  /**
-   * `message:delete` — 'self' (per-user tombstone) or 'everyone'
-   * (sender-only redaction within the delete window, or admin override).
-   * Cloudinary cleanup for image messages is fire-and-forget so the ack
-   * is not blocked on a third-party round-trip.
-   */
   socket.on('message:delete', async (raw, rawAck) => {
     const ack = withAck(rawAck, 'message:delete');
     try {
@@ -466,6 +374,7 @@ export const registerMessageHandlers = (io, socket) => {
       });
 
       if (result.scope === 'everyone' && result.imagePublicId) {
+        // Not awaited so the ack doesn't wait on Cloudinary.
         safeDestroy(result.imagePublicId);
       }
 
@@ -480,10 +389,6 @@ export const registerMessageHandlers = (io, socket) => {
     }
   });
 
-  /**
-   * `message:reaction` — toggle / replace a single user's reaction on a
-   * message. Service enforces the "one reaction per user" rule.
-   */
   socket.on('message:reaction', async (raw, rawAck) => {
     const ack = withAck(rawAck, 'message:reaction');
     try {
@@ -520,13 +425,7 @@ export const registerMessageHandlers = (io, socket) => {
     }
   });
 
-  /**
-   * `conversation:read` — mark every unread in the conversation as read
-   * and (optionally, gated by the user's `showReadReceipts` preference)
-   * broadcast `conversation:readBy` so the other participants upgrade
-   * their tick. Always invokes the service even when broadcasts are
-   * suppressed so the user's own unread counter still resets.
-   */
+  // Always marks as read; only broadcasts if the user shares read receipts.
   socket.on('conversation:read', async (raw, rawAck) => {
     const ack = withAck(rawAck, 'conversation:read');
     try {
@@ -541,8 +440,6 @@ export const registerMessageHandlers = (io, socket) => {
         userId,
       });
 
-      // Re-read the privacy preference (toggle-friendly): a user that
-      // disabled receipts mid-session must immediately stop emitting.
       const fresh = await User.findById(userId)
         .select('preferences.showReadReceipts')
         .lean();
@@ -569,12 +466,7 @@ export const registerMessageHandlers = (io, socket) => {
     }
   });
 
-  /**
-   * `conversation:open` — client announces that the chat window is now
-   * focused on `conversationId`. Suppresses `notification:new` for new
-   * messages in this conversation while at least one of the user's
-   * sockets is open on it. Implicitly closes the previously-open one.
-   */
+  // While a chat is open, the user gets no notification:new for it.
   socket.on('conversation:open', async (raw, rawAck) => {
     const ack = withAck(rawAck, 'conversation:open');
     try {
@@ -584,16 +476,13 @@ export const registerMessageHandlers = (io, socket) => {
         return ack.failure('Invalid conversation id');
       }
 
-      // Cheap participant gate so a malicious client can't suppress its
-      // own notifications for foreign conversations.
       const conversation = await Conversation.findOne(
         { _id: payload.conversationId, participants: userId, isActive: true },
         '_id',
       ).lean();
       if (!conversation) return ack.failure('Conversation not found');
 
-      // Replace any previous focus so refcounts stay balanced even if
-      // the client forgot to send `conversation:close` first.
+      // Close the previous chat in case the client never sent conversation:close.
       const previous = socket.data.activeConversationId;
       if (previous && previous !== payload.conversationId) {
         removeActiveViewer(previous, userId);
@@ -608,11 +497,6 @@ export const registerMessageHandlers = (io, socket) => {
     }
   });
 
-  /**
-   * `conversation:close` — client lost focus / closed the chat window.
-   * Idempotent: closing when nothing is open is a no-op rather than an
-   * error, since browser focus events can be noisy.
-   */
   socket.on('conversation:close', async (raw, rawAck) => {
     const ack = withAck(rawAck, 'conversation:close');
     try {
@@ -620,8 +504,7 @@ export const registerMessageHandlers = (io, socket) => {
       const targetId = payload?.conversationId;
       const active = socket.data.activeConversationId;
 
-      // Allow a bare `conversation:close` (no payload) to clear whatever
-      // was active. Mirrors how blur/visibility events fire on the client.
+      // No id means close whatever is open.
       if (!targetId) {
         if (active) {
           removeActiveViewer(active, userId);
@@ -643,16 +526,4 @@ export const registerMessageHandlers = (io, socket) => {
       return ack.failure('Failed to close conversation', err);
     }
   });
-};
-
-export default registerMessageHandlers;
-
-// Exposed for test ergonomics; not part of the public socket surface.
-export const _internals = {
-  pickAllowedKeys,
-  isValidObjectId,
-  emitNotifications,
-  MESSAGE_TYPES,
-  MESSAGE_DELETED_FOR,
-  CONVERSATION_TYPES,
 };

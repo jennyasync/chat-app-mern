@@ -3,26 +3,7 @@ import { ADMIN_AUDIT_ACTIONS } from '../utils/constants.js';
 
 const { Schema, model } = mongoose;
 
-/**
- * Append-only audit trail for every admin moderation action.
- *
- * The collection is **write-only** at the application layer: there is
- * no public REST endpoint that reads from it, and no service helper
- * exposes a `find` over it. Forensic queries are run directly against
- * MongoDB by an operator with shell access — keeping reads off the API
- * surface removes the entire class of "compromised admin clears their
- * own trail" attack vectors.
- *
- * `meta` is a free-form mixed bag (previous status, new role, reason
- * note, etc.). Schema enforcement is intentionally loose here because
- * the action enum already constrains the *shape* of the meaningful
- * fields, and a strict subdoc per action would create churn every time
- * a new admin operation is added.
- *
- * `at` is independent of `createdAt` so callers can backfill or batch
- * insert without losing the actual operation timestamp; `createdAt`
- * still records when the row landed in Mongo.
- */
+// Write-only from the app: no API reads it, so a compromised admin can't view or clear the trail.
 const adminAuditLogSchema = new Schema(
   {
     adminId: {
@@ -45,8 +26,6 @@ const adminAuditLogSchema = new Schema(
   { timestamps: true, minimize: false },
 );
 
-// Common forensic query: "every action this admin performed, newest first".
 adminAuditLogSchema.index({ adminId: 1, at: -1 });
 
 export const AdminAuditLog = model('AdminAuditLog', adminAuditLogSchema);
-export default AdminAuditLog;

@@ -29,15 +29,6 @@ const toIdString = (value) => {
   return null;
 };
 
-/**
- * Strip control characters and the four "structural" HTML chars from a
- * user-supplied free-text field. Mirrors the sanitiser pattern used in
- * `messageService.js` and `notificationService.js` — each layer owns
- * its own boundary instead of cross-importing helpers.
- *
- * The output is also length-capped so a reporter cannot bloat the
- * collection by submitting near-maxlength descriptions repeatedly.
- */
 const sanitizeReportText = (value, max) => {
   if (typeof value !== 'string') return '';
   const cleaned = value
@@ -48,22 +39,7 @@ const sanitizeReportText = (value, max) => {
   return cleaned.slice(0, max);
 };
 
-/**
- * Resolve the target document and apply the per-type validation rules.
- *
- *  - `user`         → the target must exist and not be the reporter.
- *                     Admins are exempt from being reported (mirrors
- *                     the block-target rule in user.controller).
- *  - `message`      → the target must exist and the reporter must be a
- *                     participant of its conversation (otherwise the
- *                     reporter is poking at message ids they cannot
- *                     possibly have seen — leak-detector).
- *  - `conversation` → the reporter must be a participant.
- *
- * Returning the resolved target lets the caller persist a richer
- * `meta` snapshot if it ever wants to (we currently do not — the
- * report row only stores ids).
- */
+// Reporters can only target messages and conversations they are part of.
 const resolveAndValidateTarget = async ({ reporterId, targetType, targetId }) => {
   if (targetType === REPORT_TARGET_TYPES.USER) {
     if (toIdString(reporterId) === toIdString(targetId)) {
@@ -95,9 +71,7 @@ const resolveAndValidateTarget = async ({ reporterId, targetType, targetId }) =>
       (p) => toIdString(p) === toIdString(reporterId),
     );
     if (!isParticipant) {
-      // Soft-cover: reply with `notFound` rather than `forbidden` so a
-      // reporter cannot enumerate which messageIds exist outside their
-      // conversations. Same trick used elsewhere in the codebase.
+      // 404 instead of 403 so message ids from other chats can't be probed.
       throw ApiError.notFound('Message not found');
     }
     if (toIdString(message.sender) === toIdString(reporterId)) {
@@ -124,12 +98,6 @@ const resolveAndValidateTarget = async ({ reporterId, targetType, targetId }) =>
   throw ApiError.badRequest('Invalid target type');
 };
 
-/**
- * Persist a new report after validating the target and enforcing the
- * 24-hour anti-brigade cooldown. Idempotent on the cooldown side: a
- * second submission inside the window returns 429 instead of silently
- * ignoring the click.
- */
 export const createReport = async ({
   reporterId,
   targetType,
@@ -163,9 +131,6 @@ export const createReport = async ({
     .select('_id createdAt')
     .lean();
   if (recent) {
-    // 429 communicates "you already did this; come back later" which is
-    // closer to the truth than 409 (would imply the resource exists in
-    // the URL path the caller supplied).
     throw ApiError.tooMany(
       'You have already reported this target recently. Please wait before reporting again.',
     );
@@ -187,12 +152,6 @@ export const createReport = async ({
   return report.toObject();
 };
 
-/**
- * Paginated list for the moderator queue. Filter surface is intentionally
- * minimal — `status` and `targetType` cover every workflow shown in the
- * admin UI; broader filters (date range, reporter id) belong in a future
- * "advanced search" view, not the default queue.
- */
 export const listReports = async ({
   page = 1,
   limit = 20,
@@ -227,23 +186,13 @@ export const listReports = async ({
   };
 };
 
-/**
- * Public-shape projection used when an admin loads the polymorphic
- * target alongside a report. Excludes any field that would leak
- * server-internal state (block lists, preferences, password hash, etc).
- */
 const TARGET_USER_PROJECTION =
   '_id username displayName avatarUrl email role status createdAt';
 
 const TARGET_CONVERSATION_PROJECTION =
   '_id type name avatarUrl participants admins createdBy createdAt';
 
-/**
- * Resolve the polymorphic `(targetType, targetId)` pointer to a public
- * shape suitable for the moderator detail view. Returns `null` when the
- * target has been hard-deleted in the meantime — the report itself
- * remains useful for the audit trail even after the target disappears.
- */
+// Returns null if the target was deleted; the report is still worth keeping.
 const populateReportTarget = async (report) => {
   if (!report) return null;
   const { targetType, targetId } = report;
@@ -293,16 +242,7 @@ export const getReportDetail = async ({ reportId }) => {
   return { report, target };
 };
 
-/**
- * Apply a moderator decision to a report. Once a report has been
- * actioned (status moved out of `pending`), further patches still go
- * through but always overwrite — there's no soft "history" inside the
- * report itself; the change is recorded in the admin audit log instead.
- *
- * `reviewNote` is sanitised the same way `description` is — the field
- * is shown to other moderators (and never to the reporter), but
- * defence-in-depth costs nothing here.
- */
+// Later reviews overwrite earlier ones; history lives in the admin audit log.
 export const reviewReport = async ({
   reportId,
   reviewerId,
@@ -323,8 +263,6 @@ export const reviewReport = async ({
     throw ApiError.badRequest('Invalid status');
   }
   if (status === REPORT_STATUSES.PENDING) {
-    // Reverting a report back to pending after triage would erase the
-    // moderator decision without an audit hook — disallowed here.
     throw ApiError.badRequest('Cannot revert a report to pending');
   }
 
@@ -347,11 +285,4 @@ export const reviewReport = async ({
 
   if (!updated) throw ApiError.notFound('Report not found');
   return updated;
-};
-
-export const _internals = {
-  isValidObjectId,
-  toIdString,
-  sanitizeReportText,
-  populateReportTarget,
 };

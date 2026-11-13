@@ -2,21 +2,12 @@ import multer from 'multer';
 import { env } from '../config/env.js';
 import { ApiError } from '../utils/apiError.js';
 
-/**
- * Strict MIME whitelist. We intentionally exclude `image/svg+xml` because
- * SVG is XML and can carry embedded `<script>` payloads that would execute
- * in the browser if rendered inline. Cloudinary delivers raster images,
- * which are inert in this context.
- */
+// No SVG: it can carry embedded scripts.
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 const MB = 1024 * 1024;
 
-/**
- * In-memory storage only — file buffers are streamed straight to Cloudinary
- * by the upload controller. No untrusted byte ever touches the server's
- * disk, which removes an entire class of LFI / path-traversal attacks.
- */
+// Memory storage: buffers go straight to Cloudinary and never touch disk.
 const storage = multer.memoryStorage();
 
 const fileFilter = (_req, file, cb) => {
@@ -44,17 +35,10 @@ const upload = multer({
   },
 });
 
-/** Single avatar image — field name `image`. */
 export const uploadAvatar = upload.single('image');
-
-/** Single message attachment — field name `image`. */
 export const uploadMessageImage = upload.single('image');
 
-/**
- * Translates Multer's MulterError into our ApiError shape so the global
- * error handler responds with a clean JSON body instead of HTML/text.
- * Mount this AFTER the upload middleware in any route that uses it.
- */
+// Turns Multer errors into ApiErrors so clients get JSON. Mount after the upload middleware.
 // eslint-disable-next-line no-unused-vars
 export const handleUploadErrors = (err, _req, _res, next) => {
   if (!err) return next();

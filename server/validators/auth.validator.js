@@ -69,10 +69,6 @@ export const validateUpdateProfile = [
     .isURL({ protocols: ['http', 'https'], require_protocol: true })
     .withMessage('Avatar URL must be a valid http(s) URL')
     .bail()
-    // Avatar URLs MUST come from our own Cloudinary cloud — otherwise a
-    // client could store an arbitrary URL (tracking pixel, attacker host,
-    // unsafe scheme on a misconfigured renderer) in a public profile
-    // field that other users will load.
     .custom(cloudinaryUrlValidator),
   body('avatarPublicId').optional().isString().isLength({ max: 200 })
     .withMessage('avatarPublicId is too long'),

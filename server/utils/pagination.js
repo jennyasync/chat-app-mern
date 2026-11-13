@@ -1,12 +1,4 @@
-/**
- * Generic offset-based pagination helper. Cursor-based pagination for chat
- * history lives in messageService — this util powers list endpoints
- * (conversations, notifications, search results, etc).
- *
- * `limit` is hard-clamped to `maxLimit` to defuse single-request data
- * exfiltration; `page` is forced to a positive integer to block negative
- * skip values that could otherwise blow up the driver.
- */
+// Offset pagination for list endpoints. Message history uses cursors in messageService.
 export const parsePagination = (
   query = {},
   { defaultLimit = 20, maxLimit = 50 } = {},
@@ -23,11 +15,6 @@ export const parsePagination = (
   return { page, limit, skip: (page - 1) * limit };
 };
 
-/**
- * Build the standard pagination envelope. Always includes at least one
- * page so the client can render an "empty" state without divide-by-zero
- * surprises.
- */
 export const buildPageMeta = ({ total, page, limit }) => ({
   total,
   page,
