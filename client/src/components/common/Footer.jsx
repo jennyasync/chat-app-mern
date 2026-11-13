@@ -22,7 +22,7 @@ const Footer = ({ className = '' }) => {
       className={`sign w-full border-t border-gray-200 bg-white/60 px-4 py-4 text-center text-xs text-gray-500 backdrop-blur-sm dark:border-gray-800 dark:bg-gray-950/60 dark:text-gray-400 ${className}`.trim()}
     >
       <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
-        <span>&copy; {year} Chat App</span>
+        <span>&copy; {year} Chatty</span>
         <span aria-hidden="true" className="text-gray-300 dark:text-gray-700">
           •
         </span>

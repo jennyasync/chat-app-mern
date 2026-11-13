@@ -67,7 +67,7 @@ const Navbar = () => {
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
           </span>
           <span className="text-base font-semibold tracking-tight text-gray-900 dark:text-white">
-            Chat App
+            Chatty
           </span>
         </Link>
 

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Chat App frontend — React 19 + Vite + Tailwind v4",
+  "description": "Chatty frontend (React 19, Vite, Tailwind v4)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

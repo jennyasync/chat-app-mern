@@ -15,7 +15,7 @@ const AuthLayout = () => {
             <MessageCircle className="h-5 w-5" aria-hidden="true" />
           </span>
           <span className="text-lg font-semibold tracking-tight text-gray-900 dark:text-white">
-            Chat App
+            Chatty
           </span>
         </Link>
 

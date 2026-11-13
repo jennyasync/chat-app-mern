@@ -1,5 +1,5 @@
 # =============================================================================
-# Netlify build configuration for the Chat App client (Vite + React 19).
+# Netlify build configuration for the Chatty client (Vite + React 19).
 # Repo root for Netlify must be set to `client/` (Site settings → Build & deploy).
 # =============================================================================
 
