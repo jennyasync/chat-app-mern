@@ -10,11 +10,6 @@ import {
 
 const { Schema, model } = mongoose;
 
-/**
- * Per-recipient read marker. Stored as an array of subdocs (rather than a
- * Map) so we can run aggregation-style queries — e.g. "messages unread by
- * user X" — without touching dynamic field paths.
- */
 const readReceiptSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -23,10 +18,6 @@ const readReceiptSchema = new Schema(
   { _id: false },
 );
 
-/**
- * One reaction per user per message. Replacement (not stacking) is enforced
- * at the service / controller layer; the schema only validates shape.
- */
 const reactionSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -51,9 +42,7 @@ const messageSchema = new Schema(
       required: [true, 'conversationId is required'],
       index: true,
     },
-    // Nullable: when the sender deletes their account we anonymize the
-    // reference (set to null) instead of deleting the message — keeps
-    // group-chat history coherent for the remaining participants.
+    // Set to null when the sender deletes their account, so group history stays intact.
     sender: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -83,11 +72,7 @@ const messageSchema = new Schema(
       enum: Object.values(MESSAGE_DELETED_FOR),
       default: MESSAGE_DELETED_FOR.NONE,
     },
-    /**
-     * Per-user "delete for self" tombstones. Storing user ids here lets us
-     * filter the message out of the requester's history without destroying
-     * the row for the rest of the participants. Filtered at read time.
-     */
+    // Users who deleted this message for themselves only.
     hiddenFor: {
       type: [{ type: Schema.Types.ObjectId, ref: 'User' }],
       default: [],
@@ -101,14 +86,12 @@ const messageSchema = new Schema(
   { timestamps: true },
 );
 
-// Primary access pattern: paginated history for one conversation, newest first.
 messageSchema.index({ conversationId: 1, createdAt: -1 });
 
-/**
- * Mongoose 9 pre-hook: no `next` parameter — return a promise (or throw).
- * Cross-field invariants the per-field validators cannot express.
- */
 messageSchema.pre('save', async function () {
+  // Mongoose sets isNew to false before post-save hooks run, so remember it here.
+  this.$locals.wasNew = this.isNew;
+
   if (this.type === MESSAGE_TYPES.TEXT) {
     if (!this.text || this.text.trim().length === 0) {
       throw new Error('Text message cannot be empty');
@@ -121,7 +104,6 @@ messageSchema.pre('save', async function () {
     }
   }
 
-  // Idempotency: collapse duplicate readBy entries for the same user.
   if (Array.isArray(this.readBy) && this.readBy.length > 1) {
     const seen = new Set();
     this.readBy = this.readBy.filter((entry) => {
@@ -132,7 +114,7 @@ messageSchema.pre('save', async function () {
     });
   }
 
-  // One reaction per user — keep the most recent if duplicates slip through.
+  // One reaction per user; keep the latest if duplicates slip through.
   if (Array.isArray(this.reactions) && this.reactions.length > 1) {
     const lastByUser = new Map();
     for (const r of this.reactions) {
@@ -143,18 +125,12 @@ messageSchema.pre('save', async function () {
     this.reactions = Array.from(lastByUser.values());
   }
 
-  // Server-side enforcement: a "delete for everyone" message exposes no
-  // payload, regardless of what the caller passed in.
   if (this.deletedFor === MESSAGE_DELETED_FOR.EVERYONE) {
     this.text = '';
     this.imageUrl = '';
   }
 });
 
-/**
- * Build the denormalized snapshot that lives on `Conversation.lastMessage`.
- * Keeps the sidebar list endpoint free of per-row JOINs.
- */
 const buildLastMessageSnapshot = (doc) => {
   let text = '';
   if (doc.deletedFor === MESSAGE_DELETED_FOR.EVERYONE) {
@@ -175,20 +151,10 @@ const buildLastMessageSnapshot = (doc) => {
   };
 };
 
-/**
- * Post-save hook: keep the parent Conversation in sync.
- *  - Refresh `lastMessage` snapshot for the sidebar preview.
- *  - Bump `updatedAt` (handled implicitly via the update — schema has
- *    `timestamps: true`).
- *  - Increment `unreadCounts` for every participant except the sender.
- *
- * Errors are logged but never re-thrown: the message has already been
- * persisted at this point, and surfacing a hook error would mislead the
- * caller into thinking the write failed.
- */
+// Updates the conversation preview and unread counts. Errors are only logged since the message is already saved.
 messageSchema.post('save', async function (doc) {
   try {
-    if (!doc.isNew) return;
+    if (!doc.$locals.wasNew) return;
 
     const conversation = await Conversation.findById(doc.conversationId).select(
       'participants',
@@ -203,11 +169,7 @@ messageSchema.post('save', async function (doc) {
         .map((p) => p.toString())
         .filter((pid) => pid !== senderId);
 
-      // Mute suppression (STEP 10): users who muted this conversation do
-      // NOT receive an unread bump. Their existing badge value is
-      // preserved (any stale count from before mute stays as-is). Sound
-      // and browser notifications are suppressed at the socket / client
-      // layer using the same `mutedConversations` array.
+      // Users who muted the conversation don't get an unread bump.
       let mutedSet = new Set();
       if (recipientIds.length > 0) {
         const mutedRows = await User.find(
@@ -230,10 +192,8 @@ messageSchema.post('save', async function (doc) {
 
     await Conversation.findByIdAndUpdate(doc.conversationId, update);
   } catch (err) {
-    // Intentionally swallowed — see hook docstring above.
     console.error('[Message post-save] conversation sync failed:', err);
   }
 });
 
 export const Message = model('Message', messageSchema);
-export default Message;
